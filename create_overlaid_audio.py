@@ -305,11 +305,12 @@ class AudioProcessor:
         # Save clips
         base_name = Path(input_file).stem
         for i, clip in enumerate(clips):
-            output_path = Path(output_dir) / f"{base_name}_clip_{i:03d}.ogg"
-            sf.write(str(output_path), clip, 16000, format='OGG', subtype='VORBIS')
+            output_path = Path(output_dir) / f"{base_name}_clip_{i:03d}.wav"
+            # sf.write(str(output_path), clip, 16000, format='OGG', subtype='VORBIS')
+            sf.write(str(output_path), clip, 16000, format='WAV')
 
 def process_drive_audio(base_folder, output_folder, clip_duration_seconds=1.0, window_overlap_ratio=0.1):
-    """Process all audio files in Google Drive folder"""
+    """Process all audio files in Google Drive folder and save all clips to a single output folder"""
     # Mount Google Drive if not already mounted
     if not os.path.exists('/content/drive'):
         drive.mount('/content/drive')
@@ -335,15 +336,23 @@ def process_drive_audio(base_folder, output_folder, clip_duration_seconds=1.0, w
     # Process each audio file
     for audio_file in tqdm(audio_files, desc="Processing audio files"):
         try:
-            # Get relative path to maintain folder structure
+            # Get relative path and use it to create a unique prefix
             rel_path = os.path.relpath(audio_file, base_folder)
-            file_output_dir = os.path.join(output_folder, os.path.dirname(rel_path))
+            # Replace directory separators with underscores to create a flat structure
+            file_prefix = rel_path.replace(os.sep, '_').rsplit('.', 1)[0]
             
-            # Create output directory for this file
-            os.makedirs(file_output_dir, exist_ok=True)
+            # Load and normalize audio
+            audio = processor.load_and_normalize_audio(audio_file)
+            if audio is None:
+                continue
             
-            # Process the file
-            processor.segment_audio(audio_file, file_output_dir)
+            # Split into clips
+            clips = processor.split_into_clips(audio)
+            
+            # Save clips with the unique prefix
+            for i, clip in enumerate(clips):
+                output_path = Path(output_folder) / f"{file_prefix}_clip_{i:03d}.wav"
+                sf.write(str(output_path), clip, 16000, format='WAV')
             
         except Exception as e:
             print(f"Error processing {audio_file}: {str(e)}")
