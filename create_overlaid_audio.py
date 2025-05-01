@@ -208,8 +208,8 @@ class AudioOverlayGenerator:
         
         # Save each clip with an index
         for i, clip in enumerate(audio_clips):
-            output_path = Path(mount_point) / f"{filename_prefix}_clip_{i:03d}.ogg"
-            sf.write(str(output_path), clip.numpy(), 16000, format='OGG', subtype='VORBIS')
+            output_path = Path(mount_point) / f"{filename_prefix}_clip_{i:03d}.wav"
+            sf.write(str(output_path), clip.numpy(), 16000, format='WAV')
     
     def create_sample_dataset(self, num_clips_per_category=10, max_duration_seconds=10):
         """Create a small sample dataset and save to Google Drive"""
