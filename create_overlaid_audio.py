@@ -102,27 +102,35 @@ class AudioMixerGenerator:
             return None
     
     def split_into_clips(self, audio):
-        """Split audio into overlapping clips with windowing"""
-        # Calculate number of clips with overlap
-        hop_size = self.samples_per_clip - self.overlap_samples
-        num_clips = max(1, (len(audio) - self.samples_per_clip) // hop_size + 1)
+        """Split audio into non-overlapping 1-second clips with light Hann windowing"""
+        # Create a very light Hann window (mostly 1s with slight tapering at edges)
+        window = windows.hann(self.samples_per_clip)
+        # Make the window mostly flat with just slight edge tapering
+        window = 0.1 * window + 0.9  # This makes the window range from 0.9 to 1.0
+        
+        # Calculate number of complete clips
+        num_clips = len(audio) // self.samples_per_clip
         clips = []
         
         for i in range(num_clips):
-            start = i * hop_size
+            start = i * self.samples_per_clip
             end = start + self.samples_per_clip
-            
-            if end > len(audio):
-                # Pad the last clip if needed
-                clip = np.pad(audio[start:], (0, end - len(audio)))
-            else:
-                clip = audio[start:end]
-            
-            # Apply windowing
-            clip = clip * self.window
+            clip = audio[start:end]
+            # Apply light windowing
+            clip = clip * window
             clips.append(clip)
         
-        return np.stack(clips) if clips else np.zeros((1, self.samples_per_clip))
+        # Handle remaining audio if any
+        if len(audio) % self.samples_per_clip > 0:
+            start = num_clips * self.samples_per_clip
+            remaining = audio[start:]
+            # Pad with zeros to reach full duration
+            clip = np.pad(remaining, (0, self.samples_per_clip - len(remaining)))
+            # Apply light windowing
+            clip = clip * window
+            clips.append(clip)
+        
+        return clips if clips else [np.zeros(self.samples_per_clip)]
     
     def generate_sample(self):
         """Generate a single mixed audio sample and split into clips"""
@@ -155,7 +163,7 @@ class AudioMixerGenerator:
         # Normalize the mixed audio
         mixed = mixed / np.max(np.abs(mixed))
         
-        # Split into clips with windowing
+        # Split into clips
         clips = self.split_into_clips(mixed)
         return tf.convert_to_tensor(clips, dtype=tf.float32)
 
@@ -270,24 +278,32 @@ class AudioProcessor:
             return None
     
     def split_into_clips(self, audio):
-        """Split audio into overlapping clips with windowing"""
-        # Calculate number of clips with overlap
-        hop_size = self.samples_per_clip - self.overlap_samples
-        num_clips = max(1, (len(audio) - self.samples_per_clip) // hop_size + 1)
+        """Split audio into non-overlapping 1-second clips with light Hann windowing"""
+        # Create a very light Hann window (mostly 1s with slight tapering at edges)
+        window = windows.hann(self.samples_per_clip)
+        # Make the window mostly flat with just slight edge tapering
+        window = 0.1 * window + 0.9  # This makes the window range from 0.9 to 1.0
+        
+        # Calculate number of complete clips
+        num_clips = len(audio) // self.samples_per_clip
         clips = []
         
         for i in range(num_clips):
-            start = i * hop_size
+            start = i * self.samples_per_clip
             end = start + self.samples_per_clip
-            
-            if end > len(audio):
-                # Pad the last clip if needed
-                clip = np.pad(audio[start:], (0, end - len(audio)))
-            else:
-                clip = audio[start:end]
-            
-            # Apply windowing
-            clip = clip * self.window
+            clip = audio[start:end]
+            # Apply light windowing
+            clip = clip * window
+            clips.append(clip)
+        
+        # Handle remaining audio if any
+        if len(audio) % self.samples_per_clip > 0:
+            start = num_clips * self.samples_per_clip
+            remaining = audio[start:]
+            # Pad with zeros to reach full duration
+            clip = np.pad(remaining, (0, self.samples_per_clip - len(remaining)))
+            # Apply light windowing
+            clip = clip * window
             clips.append(clip)
         
         return clips if clips else [np.zeros(self.samples_per_clip)]
@@ -324,7 +340,7 @@ def process_drive_audio(base_folder, output_folder, clip_duration_seconds=1.0, w
         window_overlap_ratio=window_overlap_ratio
     )
     
-    # Get all audio files
+    # Get all audio files recursively
     audio_files = []
     for dirpath, dirnames, filenames in os.walk(base_folder):
         for filename in filenames:
@@ -334,13 +350,9 @@ def process_drive_audio(base_folder, output_folder, clip_duration_seconds=1.0, w
     print(f"Found {len(audio_files)} audio files to process")
     
     # Process each audio file
+    total_clips = 0
     for audio_file in tqdm(audio_files, desc="Processing audio files"):
         try:
-            # Get relative path and use it to create a unique prefix
-            rel_path = os.path.relpath(audio_file, base_folder)
-            # Replace directory separators with underscores to create a flat structure
-            file_prefix = rel_path.replace(os.sep, '_').rsplit('.', 1)[0]
-            
             # Load and normalize audio
             audio = processor.load_and_normalize_audio(audio_file)
             if audio is None:
@@ -349,15 +361,19 @@ def process_drive_audio(base_folder, output_folder, clip_duration_seconds=1.0, w
             # Split into clips
             clips = processor.split_into_clips(audio)
             
-            # Save clips with the unique prefix
+            # Save clips with a unique prefix based on original file
+            file_prefix = Path(audio_file).stem
+            
+            # Save all clips in the single output folder
             for i, clip in enumerate(clips):
                 output_path = Path(output_folder) / f"{file_prefix}_clip_{i:03d}.wav"
                 sf.write(str(output_path), clip, 16000, format='WAV')
+                total_clips += 1
             
         except Exception as e:
             print(f"Error processing {audio_file}: {str(e)}")
     
-    print("Audio segmentation complete!")
+    print(f"Audio segmentation complete! Generated {total_clips} clips in {output_folder}")
 
 def main():
     base_dir = Path(__file__).parent
