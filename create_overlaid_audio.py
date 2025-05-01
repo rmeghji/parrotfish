@@ -114,7 +114,7 @@ class AudioOverlayGenerator:
         self.annotations_file = annotations_file
         self.activity_file = activity_file
     
-    def save_to_drive(self, audio_data, filename, mount_point="/content/drive/MyDrive/audio_data"):
+    def save_to_drive(self, audio_data, filename, mount_point="/content/drive/MyDrive/parrotfish"):
         """Save audio data directly to Google Drive"""
         drive.mount('/content/drive')
         os.makedirs(mount_point, exist_ok=True)
