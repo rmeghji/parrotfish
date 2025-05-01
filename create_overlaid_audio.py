@@ -11,6 +11,7 @@ import soundfile as sf
 from google.colab import drive
 import io
 import tensorflow as tf
+import time
 
 class AudioMixerGenerator:
     def __init__(self, base_dir, annotations_file, activity_file, num_speakers=2, 
@@ -325,7 +326,7 @@ class AudioProcessor:
             # sf.write(str(output_path), clip, 16000, format='OGG', subtype='VORBIS')
             sf.write(str(output_path), clip, 16000, format='WAV')
 
-def process_drive_audio(base_folder, output_folder, clip_duration_seconds=1.0, window_overlap_ratio=0.1):
+def process_drive_audio(base_folder, output_folder, clip_duration_seconds=1.0, window_overlap_ratio=0.1, batch_size=100):
     """Process all audio files in Google Drive folder and save all clips to a single output folder"""
     # Mount Google Drive if not already mounted
     if not os.path.exists('/content/drive'):
@@ -349,31 +350,71 @@ def process_drive_audio(base_folder, output_folder, clip_duration_seconds=1.0, w
     
     print(f"Found {len(audio_files)} audio files to process")
     
-    # Process each audio file
-    total_clips = 0
-    for audio_file in tqdm(audio_files, desc="Processing audio files"):
-        try:
-            # Load and normalize audio
-            audio = processor.load_and_normalize_audio(audio_file)
-            if audio is None:
-                continue
-            
-            # Split into clips
-            clips = processor.split_into_clips(audio)
-            
-            # Save clips with a unique prefix based on original file
-            file_prefix = Path(audio_file).stem
-            
-            # Save all clips in the single output folder
-            for i, clip in enumerate(clips):
-                output_path = Path(output_folder) / f"{file_prefix}_clip_{i:03d}.wav"
+    def save_clip_with_retry(clip, output_path, max_retries=3, delay=1):
+        """Try to save a clip with retries on failure"""
+        for attempt in range(max_retries):
+            try:
                 sf.write(str(output_path), clip, 16000, format='WAV')
-                total_clips += 1
-            
-        except Exception as e:
-            print(f"Error processing {audio_file}: {str(e)}")
+                return True
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(delay)
+                    continue
+                else:
+                    print(f"Failed to save {output_path} after {max_retries} attempts: {str(e)}")
+                    return False
     
-    print(f"Audio segmentation complete! Generated {total_clips} clips in {output_folder}")
+    # Process files in batches to avoid overwhelming Google Drive
+    total_clips = 0
+    successful_files = 0
+    batch_start = 0
+    
+    while batch_start < len(audio_files):
+        batch_end = min(batch_start + batch_size, len(audio_files))
+        batch = audio_files[batch_start:batch_end]
+        
+        print(f"\nProcessing batch {batch_start//batch_size + 1} ({batch_start}-{batch_end} of {len(audio_files)})")
+        
+        for audio_file in tqdm(batch, desc="Processing audio files"):
+            try:
+                # Load and normalize audio
+                audio = processor.load_and_normalize_audio(audio_file)
+                if audio is None:
+                    continue
+                
+                # Split into clips
+                clips = processor.split_into_clips(audio)
+                
+                # Save clips with a unique prefix based on original file
+                file_prefix = Path(audio_file).stem
+                
+                # Track if all clips for this file were saved successfully
+                file_success = True
+                
+                # Save all clips in the single output folder
+                for i, clip in enumerate(clips):
+                    output_path = Path(output_folder) / f"{file_prefix}_clip_{i:03d}.wav"
+                    if save_clip_with_retry(clip, output_path):
+                        total_clips += 1
+                    else:
+                        file_success = False
+                
+                if file_success:
+                    successful_files += 1
+                
+            except Exception as e:
+                print(f"Error processing {audio_file}: {str(e)}")
+        
+        # Add a small delay between batches to let Google Drive catch up
+        if batch_end < len(audio_files):
+            print("Waiting 5 seconds before next batch...")
+            time.sleep(5)
+        
+        batch_start = batch_end
+    
+    print(f"\nAudio segmentation complete!")
+    print(f"Successfully processed {successful_files}/{len(audio_files)} files")
+    print(f"Generated {total_clips} clips in {output_folder}")
 
 def main():
     base_dir = Path(__file__).parent
