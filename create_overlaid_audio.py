@@ -14,23 +14,58 @@ import tensorflow as tf
 import time
 
 class AudioMixerGenerator:
-    def __init__(self, base_dir, clips_dir, num_speakers=2, batch_size=1000):
+    def __init__(self, base_dir, clips_dir, source_dir, num_speakers=2):
         """
         Initialize the AudioMixerGenerator for mixing pre-processed 1-second clips.
         
         Args:
             base_dir: Base directory containing the data
-            clips_dir: Directory containing the pre-processed 1-second audio clips
+            clips_dir: Directory containing the processed 1-second clips
+            source_dir: Directory containing the original audio files in subdirectories
             num_speakers: Number of speakers to mix together
-            batch_size: Number of files to process at once when selecting random files
         """
         self.base_dir = Path(base_dir)
         self.clips_dir = Path(clips_dir)
-        self.input_dir = self.clips_dir
+        self.source_dir = Path(source_dir)
         self.num_speakers = num_speakers
-        self.batch_size = batch_size
         self.samples_per_clip = 16000  # 1-second clips at 16kHz
         
+    def get_random_source_files(self):
+        """Get random files from source subdirectories"""
+        # Get list of subdirectories (much faster than listing all files)
+        subdirs = [d for d in self.source_dir.iterdir() if d.is_dir()]
+        if not subdirs:
+            raise ValueError(f"No subdirectories found in {self.source_dir}")
+            
+        source_files = []
+        for _ in range(self.num_speakers):
+            # Pick a random subdir
+            subdir = random.choice(subdirs)
+            # List files in just that one subdir (fast since it's small)
+            files = [f for f in subdir.iterdir() if f.suffix.lower() in ('.wav', '.mp4')]
+            if files:
+                # Get relative path to construct clip filename
+                chosen = random.choice(files)
+                source_files.append(chosen.relative_to(self.source_dir))
+        
+        return source_files
+    
+    def get_random_files(self):
+        """Get random clip files based on source files"""
+        source_files = self.get_random_source_files()
+        
+        # Convert source files to clip files using the same naming schema
+        clip_files = []
+        for src in source_files:
+            # Get base name without extension
+            base_name = src.stem
+            # Randomly choose one of the clips from this source file
+            clip_num = random.randint(0, 9)  # Assuming most files produce <10 clips
+            clip_name = f"{base_name}_clip_{clip_num:03d}.wav"
+            clip_files.append(clip_name)
+            
+        return clip_files
+    
     def load_clip(self, file_path):
         """Load a pre-processed 1-second clip"""
         try:
@@ -53,41 +88,9 @@ class AudioMixerGenerator:
             print(f"Error processing {file_path}: {e}")
             return None
     
-    def get_random_files(self):
-        """Get random files without loading entire directory"""
-        import itertools
-        
-        all_files = []
-        start = 0
-        max_attempts = 10  # Prevent infinite loops
-        attempts = 0
-        
-        while len(all_files) < self.num_speakers and attempts < max_attempts:
-            # List only a subset of files
-            files = list(itertools.islice(
-                (f for f in os.listdir(self.clips_dir) if f.endswith('.wav')), 
-                start, start + self.batch_size
-            ))
-            
-            if not files:
-                start = 0  # Reset if we hit the end
-                attempts += 1
-                continue
-                
-            # Add random files from this batch
-            needed = self.num_speakers - len(all_files)
-            batch_samples = random.sample(files, min(needed, len(files)))
-            all_files.extend(batch_samples)
-            start += self.batch_size
-        
-        if len(all_files) < self.num_speakers:
-            print(f"Warning: Could only find {len(all_files)} valid files")
-        
-        return all_files
-    
     def generate_sample(self):
         """Mix multiple 1-second clips together"""
-        # Randomly select input files using batch processing
+        # Randomly select input files
         selected_files = self.get_random_files()
         
         # Mix the clips
@@ -95,7 +98,7 @@ class AudioMixerGenerator:
         count = 0
         
         for filename in selected_files:
-            file_path = self.input_dir / filename
+            file_path = self.clips_dir / filename
             audio = self.load_clip(file_path)
             
             if audio is not None:
@@ -111,12 +114,13 @@ class AudioMixerGenerator:
         
         return tf.convert_to_tensor([mixed], dtype=tf.float32)
 
-def create_tf_dataset(base_dir, clips_dir, num_speakers,
+def create_tf_dataset(base_dir, clips_dir, source_dir, num_speakers,
                      batch_size=32, buffer_size=1000):
     """Create a TensorFlow dataset that generates audio samples on-the-fly"""
     mixer = AudioMixerGenerator(
         base_dir,
         clips_dir,
+        source_dir,
         num_speakers=num_speakers
     )
     
@@ -157,6 +161,7 @@ class AudioOverlayGenerator:
             generator = AudioMixerGenerator(
                 self.base_dir,
                 self.clips_dir,
+                self.base_dir / "casualconversations" / "source",
                 num_speakers=num_speakers
             )
             
@@ -353,6 +358,7 @@ def main():
     mixer = AudioMixerGenerator(
         base_dir, 
         clips_dir, 
+        base_dir / "casualconversations" / "source",
         num_speakers=2
     )
     audio_clips = mixer.generate_sample()
