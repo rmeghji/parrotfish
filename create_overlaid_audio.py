@@ -14,92 +14,51 @@ import tensorflow as tf
 import time
 
 class AudioMixerGenerator:
-    def __init__(self, base_dir, annotations_file, activity_file, num_speakers=2, 
-                 max_duration_seconds=10, input_type='video', clip_duration_seconds=1.0,
-                 window_overlap_ratio=0.1):
-        """
-        Initialize the AudioMixerGenerator.
+    def __init__(self, clips_dir, num_speakers=2, clip_duration_seconds=1.0, window_overlap_ratio=0.1):
+        """Initialize the generator with a directory of clips"""
+        self.clips_dir = Path(clips_dir)
+        if not self.clips_dir.exists():
+            raise ValueError(f"Clips directory {clips_dir} does not exist")
         
-        Args:
-            base_dir: Base directory containing the data
-            annotations_file: Path to annotations JSON file
-            activity_file: Path to activity JSON file
-            num_speakers: Number of speakers to mix together
-            max_duration_seconds: Maximum duration of audio clips
-            input_type: Type of input files ('video' or 'wav')
-            clip_duration_seconds: Duration of each output clip in seconds
-            window_overlap_ratio: Ratio of overlap between adjacent windows (0.0 to 0.5)
-        """
-        self.base_dir = Path(base_dir)
-        self.input_type = input_type.lower()
-        if self.input_type not in ['video', 'wav']:
-            raise ValueError("input_type must be either 'video' or 'wav'")
-            
-        # Set input directory based on type
-        self.input_dir = self.base_dir / ('videos' if self.input_type == 'video' else 'wavs')
         self.num_speakers = num_speakers
-        self.max_duration_seconds = max_duration_seconds
-        self.max_samples = int(max_duration_seconds * 16000)
-        
-        # Clip and window parameters
         self.clip_duration_seconds = clip_duration_seconds
-        self.samples_per_clip = int(clip_duration_seconds * 16000)
         self.window_overlap_ratio = window_overlap_ratio
+        self.samples_per_clip = int(clip_duration_seconds * 16000)
         self.overlap_samples = int(self.samples_per_clip * window_overlap_ratio)
         
-        # Create Hann window for smooth transitions
-        self.window = windows.hann(self.samples_per_clip)
+        # Get all WAV files in the directory
+        self.clip_files = []
+        for file in self.clips_dir.glob("*.wav"):
+            self.clip_files.append(file)
         
-        # Load annotations
-        with open(annotations_file, 'r') as f:
-            self.annotations = json.load(f)
-        with open(activity_file, 'r') as f:
-            self.activities = json.load(f)
-            
-        # Get input files based on type
-        if self.input_type == 'video':
-            self.input_files = [item["video_name"] for item in self.activities]
-        else:
-            # For WAV files, replace video extensions with .wav
-            self.input_files = [item["video_name"].rsplit('.', 1)[0] + '.wav' 
-                              for item in self.activities]
+        if not self.clip_files:
+            raise ValueError(f"No WAV files found in {clips_dir}")
+        
+        print(f"Found {len(self.clip_files)} clips in {clips_dir}")
     
     def load_audio(self, file_path):
-        """Load audio from either video or WAV file"""
+        """Load and normalize a WAV file"""
         try:
-            if self.input_type == 'video':
-                video = VideoFileClip(str(file_path))
-                audio = video.audio
-                if audio is None:
-                    return None
-                
-                # Extract audio data and resample to 16kHz
-                audio_array = audio.to_soundarray(fps=16000)
-                
-                # Convert to mono if stereo
-                if len(audio_array.shape) > 1:
-                    audio_array = audio_array.mean(axis=1)
-                    
-                video.close()
-                
-            else:  # WAV file
-                # Read WAV file (assuming it's already 16kHz)
-                sample_rate, audio_array = wavfile.read(str(file_path))
-                if sample_rate != 16000:
-                    raise ValueError(f"WAV file {file_path} must be 16kHz (found {sample_rate}Hz)")
-                
-                # Convert to float32 if needed
-                if audio_array.dtype != np.float32:
-                    audio_array = audio_array.astype(np.float32)
-                    if audio_array.max() > 1.0:
-                        audio_array = audio_array / 32768.0  # Normalize 16-bit integer
+            sample_rate, audio = wavfile.read(str(file_path))
+            if sample_rate != 16000:
+                raise ValueError(f"Audio file {file_path} must be 16kHz (found {sample_rate}Hz)")
+            
+            # Convert to float32 if needed
+            if audio.dtype != np.float32:
+                audio = audio.astype(np.float32)
+                if audio.max() > 1.0:
+                    audio = audio / 32768.0  # Normalize 16-bit integer
+            
+            # Convert to mono if stereo
+            if len(audio.shape) > 1:
+                audio = audio.mean(axis=1)
             
             # Normalize
-            audio_array = audio_array / np.max(np.abs(audio_array))
-            return audio_array
+            audio = audio / np.max(np.abs(audio))
+            return audio
             
         except Exception as e:
-            print(f"Error processing {file_path}: {e}")
+            print(f"Error loading {file_path}: {e}")
             return None
     
     def split_into_clips(self, audio):
@@ -134,28 +93,30 @@ class AudioMixerGenerator:
         return clips if clips else [np.zeros(self.samples_per_clip)]
     
     def generate_sample(self):
-        """Generate a single mixed audio sample and split into clips"""
-        # Randomly select input files
-        selected_files = random.sample(self.input_files, self.num_speakers)
+        """Generate a mixed audio sample by overlaying random clips"""
+        # Randomly select clips to mix
+        selected_clips = np.random.choice(self.clip_files, size=self.num_speakers, replace=False)
         
-        # Convert to audio and mix
-        mixed = np.zeros(self.max_samples)
+        # Initialize mixed audio
+        mixed = np.zeros(self.samples_per_clip)
         count = 0
         
-        for filename in selected_files:
-            file_path = self.input_dir / filename
-            audio = self.load_audio(file_path)
+        # Load and mix clips
+        for clip_file in selected_clips:
+            audio = self.load_audio(clip_file)
+            if audio is None:
+                continue
             
-            if audio is not None:
-                # Trim or pad to max duration
-                if len(audio) > self.max_samples:
-                    start = random.randint(0, len(audio) - self.max_samples)
-                    audio = audio[start:start + self.max_samples]
-                else:
-                    audio = np.pad(audio, (0, self.max_samples - len(audio)))
-                
-                mixed += audio
-                count += 1
+            # If clip is longer than needed, take a random segment
+            if len(audio) > self.samples_per_clip:
+                start = np.random.randint(0, len(audio) - self.samples_per_clip)
+                audio = audio[start:start + self.samples_per_clip]
+            else:
+                # Pad shorter clips with zeros
+                audio = np.pad(audio, (0, max(0, self.samples_per_clip - len(audio))))
+            
+            mixed += audio
+            count += 1
         
         if count == 0:
             # Return zeros if no valid audio was found
@@ -168,17 +129,12 @@ class AudioMixerGenerator:
         clips = self.split_into_clips(mixed)
         return tf.convert_to_tensor(clips, dtype=tf.float32)
 
-def create_tf_dataset(base_dir, annotations_file, activity_file, num_speakers,
-                     batch_size=32, max_duration_seconds=10, buffer_size=1000, 
-                     input_type='video', clip_duration_seconds=1.0, window_overlap_ratio=0.1):
-    """Create a TensorFlow dataset that generates audio samples on-the-fly"""
+def create_tf_dataset(clips_dir, num_speakers, batch_size=32, buffer_size=1000, 
+                     clip_duration_seconds=1.0, window_overlap_ratio=0.1):
+    """Create a TensorFlow dataset that generates mixed audio samples on-the-fly"""
     generator = AudioMixerGenerator(
-        base_dir,
-        annotations_file,
-        activity_file,
+        clips_dir,
         num_speakers=num_speakers,
-        max_duration_seconds=max_duration_seconds,
-        input_type=input_type,
         clip_duration_seconds=clip_duration_seconds,
         window_overlap_ratio=window_overlap_ratio
     )
@@ -198,17 +154,8 @@ def create_tf_dataset(base_dir, annotations_file, activity_file, num_speakers,
     return dataset.shuffle(buffer_size).batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 class AudioOverlayGenerator:
-    def __init__(self, base_dir, annotations_file, activity_file, input_type='video',
-                 clip_duration_seconds=1.0, window_overlap_ratio=0.1):
-        self.base_dir = Path(base_dir)
-        self.input_type = input_type.lower()
-        if self.input_type not in ['video', 'wav']:
-            raise ValueError("input_type must be either 'video' or 'wav'")
-        self.input_dir = self.base_dir / ('videos' if self.input_type == 'video' else 'wavs')
-        self.annotations_file = annotations_file
-        self.activity_file = activity_file
-        self.clip_duration_seconds = clip_duration_seconds
-        self.window_overlap_ratio = window_overlap_ratio
+    def __init__(self, clips_dir):
+        self.clips_dir = Path(clips_dir)
     
     def save_to_drive(self, audio_clips, filename_prefix, mount_point="/content/drive/MyDrive/parrotfish/"):
         """Save audio clips directly to Google Drive"""
@@ -220,234 +167,20 @@ class AudioOverlayGenerator:
             output_path = Path(mount_point) / f"{filename_prefix}_clip_{i:03d}.wav"
             sf.write(str(output_path), clip.numpy(), 16000, format='WAV')
     
-    def create_sample_dataset(self, num_clips_per_category=10, max_duration_seconds=10):
-        """Create a small sample dataset and save to Google Drive"""
-        print("Generating sample dataset...")
-        
-        for num_speakers in [2, 3, 4]:
-            generator = AudioMixerGenerator(
-                self.base_dir,
-                self.annotations_file,
-                self.activity_file,
-                num_speakers=num_speakers,
-                max_duration_seconds=max_duration_seconds,
-                input_type=self.input_type,
-                clip_duration_seconds=self.clip_duration_seconds,
-                window_overlap_ratio=self.window_overlap_ratio
-            )
-            
-            for i in tqdm(range(num_clips_per_category)):
-                audio_clips = generator.generate_sample()
-                self.save_to_drive(
-                    audio_clips,
-                    f"{num_speakers}_speakers_{i:04d}"
-                )
-
-class AudioProcessor:
-    def __init__(self, clip_duration_seconds=1.0, window_overlap_ratio=0.1):
-        """Initialize audio processor with clip settings"""
-        self.clip_duration_seconds = clip_duration_seconds
-        self.window_overlap_ratio = window_overlap_ratio
-        self.samples_per_clip = int(clip_duration_seconds * 16000)
-        self.overlap_samples = int(self.samples_per_clip * window_overlap_ratio)
-        self.window = windows.hann(self.samples_per_clip)
-    
-    def load_and_normalize_audio(self, file_path):
-        """Load audio file and normalize it"""
-        try:
-            # Read audio file
-            sample_rate, audio_array = wavfile.read(str(file_path))
-            if sample_rate != 16000:
-                raise ValueError(f"Audio file {file_path} must be 16kHz (found {sample_rate}Hz)")
-            
-            # Convert to float32 if needed
-            if audio_array.dtype != np.float32:
-                audio_array = audio_array.astype(np.float32)
-                if audio_array.max() > 1.0:
-                    audio_array = audio_array / 32768.0  # Normalize 16-bit integer
-            
-            # Convert to mono if stereo
-            if len(audio_array.shape) > 1:
-                audio_array = audio_array.mean(axis=1)
-            
-            # Normalize
-            audio_array = audio_array / np.max(np.abs(audio_array))
-            return audio_array
-            
-        except Exception as e:
-            print(f"Error processing {file_path}: {e}")
-            return None
-    
-    def split_into_clips(self, audio):
-        """Split audio into non-overlapping 1-second clips with light Hann windowing"""
-        # Create a very light Hann window (mostly 1s with slight tapering at edges)
-        window = windows.hann(self.samples_per_clip)
-        # Make the window mostly flat with just slight edge tapering
-        window = 0.1 * window + 0.9  # This makes the window range from 0.9 to 1.0
-        
-        # Calculate number of complete clips
-        num_clips = len(audio) // self.samples_per_clip
-        clips = []
-        
-        for i in range(num_clips):
-            start = i * self.samples_per_clip
-            end = start + self.samples_per_clip
-            clip = audio[start:end]
-            # Apply light windowing
-            clip = clip * window
-            clips.append(clip)
-        
-        # Handle remaining audio if any
-        if len(audio) % self.samples_per_clip > 0:
-            start = num_clips * self.samples_per_clip
-            remaining = audio[start:]
-            # Pad with zeros to reach full duration
-            clip = np.pad(remaining, (0, self.samples_per_clip - len(remaining)))
-            # Apply light windowing
-            clip = clip * window
-            clips.append(clip)
-        
-        return clips if clips else [np.zeros(self.samples_per_clip)]
-    
-    def segment_audio(self, input_file, output_dir):
-        """Process a single audio file and save clips"""
-        # Load and normalize audio
-        audio = self.load_and_normalize_audio(input_file)
-        if audio is None:
-            return
-        
-        # Split into clips
-        clips = self.split_into_clips(audio)
-        
-        # Save clips
-        base_name = Path(input_file).stem
-        for i, clip in enumerate(clips):
-            output_path = Path(output_dir) / f"{base_name}_clip_{i:03d}.wav"
-            # sf.write(str(output_path), clip, 16000, format='OGG', subtype='VORBIS')
-            sf.write(str(output_path), clip, 16000, format='WAV')
-
-def process_drive_audio(base_folder, output_folder, clip_duration_seconds=1.0, window_overlap_ratio=0.1, batch_size=100):
-    """Process all audio files in Google Drive folder and save all clips to a single output folder"""
-    # Mount Google Drive if not already mounted
-    if not os.path.exists('/content/drive'):
-        drive.mount('/content/drive')
-    
-    # Create output folder
-    os.makedirs(output_folder, exist_ok=True)
-    
-    # Initialize processor
-    processor = AudioProcessor(
-        clip_duration_seconds=clip_duration_seconds,
-        window_overlap_ratio=window_overlap_ratio
-    )
-    
-    # Get all audio files recursively
-    audio_files = []
-    for dirpath, dirnames, filenames in os.walk(base_folder):
-        for filename in filenames:
-            if filename.lower().endswith(('.wav', '.mp3', '.flac', '.ogg', '.m4a')):
-                audio_files.append(os.path.join(dirpath, filename))
-    
-    print(f"Found {len(audio_files)} audio files to process")
-    
-    def save_clip_with_retry(clip, output_path, max_retries=3, delay=1):
-        """Try to save a clip with retries on failure"""
-        for attempt in range(max_retries):
-            try:
-                sf.write(str(output_path), clip, 16000, format='WAV')
-                return True
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    time.sleep(delay)
-                    continue
-                else:
-                    print(f"Failed to save {output_path} after {max_retries} attempts: {str(e)}")
-                    return False
-    
-    # Process files in batches to avoid overwhelming Google Drive
-    total_clips = 0
-    successful_files = 0
-    batch_start = 0
-    
-    while batch_start < len(audio_files):
-        batch_end = min(batch_start + batch_size, len(audio_files))
-        batch = audio_files[batch_start:batch_end]
-        
-        print(f"\nProcessing batch {batch_start//batch_size + 1} ({batch_start}-{batch_end} of {len(audio_files)})")
-        
-        for audio_file in tqdm(batch, desc="Processing audio files"):
-            try:
-                # Load and normalize audio
-                audio = processor.load_and_normalize_audio(audio_file)
-                if audio is None:
-                    continue
-                
-                # Split into clips
-                clips = processor.split_into_clips(audio)
-                
-                # Save clips with a unique prefix based on original file
-                file_prefix = Path(audio_file).stem
-                
-                # Track if all clips for this file were saved successfully
-                file_success = True
-                
-                # Save all clips in the single output folder
-                for i, clip in enumerate(clips):
-                    output_path = Path(output_folder) / f"{file_prefix}_clip_{i:03d}.wav"
-                    if save_clip_with_retry(clip, output_path):
-                        total_clips += 1
-                    else:
-                        file_success = False
-                
-                if file_success:
-                    successful_files += 1
-                
-            except Exception as e:
-                print(f"Error processing {audio_file}: {str(e)}")
-        
-        # Add a small delay between batches to let Google Drive catch up
-        if batch_end < len(audio_files):
-            print("Waiting 5 seconds before next batch...")
-            time.sleep(5)
-        
-        batch_start = batch_end
-    
-    print(f"\nAudio segmentation complete!")
-    print(f"Successfully processed {successful_files}/{len(audio_files)} files")
-    print(f"Generated {total_clips} clips in {output_folder}")
-
 def main():
-    base_dir = Path(__file__).parent
-    annotations_file = base_dir / "casualconversations" / "CasualConversationsV2.json"
-    activity_file = base_dir / "casualconversations" / "CasualConversationsV2_activity.json"
+    # Example usage with directory of clips
+    clips_dir = '/content/drive/MyDrive/parrotfish/data/casual_conversations/clips'
     
-    # Example 1: Process existing audio files in Google Drive
-    base_folder = '/content/drive/MyDrive/parrotfish/data/casual_conversations'
-    output_folder = '/content/drive/MyDrive/parrotfish/data/casual_conversations/clips'
-    process_drive_audio(base_folder, output_folder, clip_duration_seconds=1.0, window_overlap_ratio=0.1)
+    # Create generator and mix some clips
+    mixer = AudioMixerGenerator(clips_dir, num_speakers=2)
+    mixed_clips = mixer.generate_sample()
     
-    # Example 2: Generate and save new mixed audio clips
-    input_type = 'wav'
-    mixer = AudioMixerGenerator(
-        base_dir, 
-        annotations_file, 
-        activity_file, 
-        num_speakers=2, 
-        input_type=input_type,
-        clip_duration_seconds=1.0,
-        window_overlap_ratio=0.1
-    )
-    audio_clips = mixer.generate_sample()
+    # Create a TensorFlow dataset
+    dataset = create_tf_dataset(clips_dir, num_speakers=2, batch_size=32)
     
-    generator = AudioOverlayGenerator(
-        base_dir, 
-        annotations_file, 
-        activity_file, 
-        input_type=input_type,
-        clip_duration_seconds=1.0,
-        window_overlap_ratio=0.1
-    )
-    generator.save_to_drive(audio_clips, "example_2speakers")
+    # Save some example mixed clips
+    generator = AudioOverlayGenerator(clips_dir)
+    generator.save_to_drive(mixed_clips, "example_2speakers")
 
 if __name__ == "__main__":
     main()
