@@ -55,32 +55,32 @@ class AudioMixerGenerator:
     
     def get_random_files(self):
         """Get random files without loading entire directory"""
-        import itertools
-
         print("Getting random files...")
         
         all_files = []
-        start = 0
         max_attempts = 10  # Prevent infinite loops
         attempts = 0
         
         while len(all_files) < self.num_speakers and attempts < max_attempts:
-            # List only a subset of files
-            files = list(itertools.islice(
-                (f for f in os.listdir(self.clips_dir) if f.endswith('.wav')), 
-                start, start + self.batch_size
-            ))
+            # Randomly select a subfolder (000-499)
+            subfolder = f"{random.randint(0, 499):03d}"
+            subfolder_path = self.clips_dir / subfolder
             
-            if not files:
-                start = 0  # Reset if we hit the end
+            if not subfolder_path.exists():
                 attempts += 1
                 continue
-                
-            # Add random files from this batch
+            
+            # Get all WAV files in this subfolder
+            files = [f for f in os.listdir(subfolder_path) if f.endswith('.wav')]
+            if not files:
+                attempts += 1
+                continue
+            
+            # Add random files from this subfolder
             needed = self.num_speakers - len(all_files)
             batch_samples = random.sample(files, min(needed, len(files)))
-            all_files.extend(batch_samples)
-            start += self.batch_size
+            # Store as subfolder/filename for later use
+            all_files.extend(f"{subfolder}/{f}" for f in batch_samples)
         
         if len(all_files) < self.num_speakers:
             print(f"Warning: Could only find {len(all_files)} valid files")
@@ -96,8 +96,8 @@ class AudioMixerGenerator:
         mixed = np.zeros(self.samples_per_clip)
         count = 0
         
-        for filename in selected_files:
-            file_path = self.input_dir / filename
+        for rel_path in selected_files:
+            file_path = self.input_dir / rel_path
             audio = self.load_clip(file_path)
             
             if audio is not None:
