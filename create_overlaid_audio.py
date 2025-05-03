@@ -88,13 +88,19 @@ class AudioMixerGenerator:
         return all_files
     
     def generate_sample(self):
-        """Mix multiple 1-second clips together"""
+        """Mix multiple 1-second clips together
+        
+        Returns:
+            tuple: (mixed_audio, input_clips) where:
+                - mixed_audio: tensor of shape (1, samples_per_clip) containing the mixed audio
+                - input_clips: tensor of shape (num_speakers, samples_per_clip) containing the individual clips
+        """
         # Randomly select input files using batch processing
         selected_files = self.get_random_files()
         
-        # Mix the clips
+        # Initialize arrays for mixed and individual clips
         mixed = np.zeros(self.samples_per_clip)
-        count = 0
+        input_clips = []
         
         for rel_path in selected_files:
             file_path = self.input_dir / rel_path
@@ -102,16 +108,28 @@ class AudioMixerGenerator:
             
             if audio is not None:
                 mixed += audio
-                count += 1
+                input_clips.append(audio)
         
-        if count == 0:
+        if not input_clips:
             # Return zeros if no valid audio was found
-            return tf.zeros((1, self.samples_per_clip), dtype=tf.float32)
+            return (
+                tf.zeros((1, self.samples_per_clip), dtype=tf.float32),
+                tf.zeros((self.num_speakers, self.samples_per_clip), dtype=tf.float32)
+            )
         
         # Normalize the mixed audio
         mixed = mixed / np.max(np.abs(mixed))
         
-        return tf.convert_to_tensor([mixed], dtype=tf.float32)
+        # Convert to tensors
+        mixed_tensor = tf.convert_to_tensor([mixed], dtype=tf.float32)
+        
+        # Pad input_clips if we got fewer clips than num_speakers
+        while len(input_clips) < self.num_speakers:
+            input_clips.append(np.zeros(self.samples_per_clip))
+        
+        input_clips_tensor = tf.convert_to_tensor(input_clips, dtype=tf.float32)
+        
+        return mixed_tensor, input_clips_tensor
 
 def create_tf_dataset(base_dir, clips_dir, num_speakers,
                      batch_size=32, buffer_size=1000):
@@ -124,13 +142,15 @@ def create_tf_dataset(base_dir, clips_dir, num_speakers,
     
     def generator_fn():
         while True:
-            clips = mixer.generate_sample()
-            for clip in clips:
-                yield clip
+            mixed_audio, input_clips = mixer.generate_sample()
+            yield mixed_audio, input_clips
     
     dataset = tf.data.Dataset.from_generator(
         generator_fn,
-        output_signature=tf.TensorSpec(shape=(mixer.samples_per_clip,), dtype=tf.float32)
+        output_signature=(
+            tf.TensorSpec(shape=(mixer.samples_per_clip,), dtype=tf.float32),
+            tf.TensorSpec(shape=(mixer.num_speakers, mixer.samples_per_clip), dtype=tf.float32)
+        )
     )
     
     # Shuffle, batch, and prefetch for better performance
@@ -163,9 +183,9 @@ class AudioOverlayGenerator:
             )
             
             for i in tqdm(range(num_clips_per_category)):
-                audio_clips = generator.generate_sample()
+                mixed_audio, input_clips = generator.generate_sample()
                 self.save_to_drive(
-                    audio_clips,
+                    input_clips,
                     f"{num_speakers}_speakers_{i:04d}"
                 )
 
@@ -332,13 +352,13 @@ def main():
         clips_dir, 
         num_speakers=2
     )
-    audio_clips = mixer.generate_sample()
+    mixed_audio, input_clips = mixer.generate_sample()
     
     generator = AudioOverlayGenerator(
         base_dir, 
         clips_dir
     )
-    generator.save_to_drive(audio_clips, "example_2speakers")
+    generator.save_to_drive(input_clips, "example_2speakers")
 
 if __name__ == "__main__":
     main()
