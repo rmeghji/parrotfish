@@ -12,6 +12,7 @@ from google.colab import drive
 import io
 import tensorflow as tf
 import time
+from Wavelets import getWaveletTransform, makeWaveDictBatch
 
 class AudioMixerGenerator:
     def __init__(self, base_dir, clips_dir, num_speakers=2, batch_size=1000):
@@ -101,6 +102,7 @@ class AudioMixerGenerator:
         # Initialize arrays for mixed and individual clips
         mixed = np.zeros(self.samples_per_clip)
         input_clips = []
+        source_ids = []
         
         for rel_path in selected_files:
             file_path = self.input_dir / rel_path
@@ -109,12 +111,14 @@ class AudioMixerGenerator:
             if audio is not None:
                 mixed += audio
                 input_clips.append(audio)
+                source_ids.append(rel_path)
         
         if not input_clips:
             # Return zeros if no valid audio was found
             return (
                 tf.zeros((1, self.samples_per_clip), dtype=tf.float32),
-                tf.zeros((self.num_speakers, self.samples_per_clip), dtype=tf.float32)
+                tf.zeros((self.num_speakers, self.samples_per_clip), dtype=tf.float32),
+                []
             )
         
         # Normalize the mixed audio
@@ -126,13 +130,62 @@ class AudioMixerGenerator:
         # Pad input_clips if we got fewer clips than num_speakers
         while len(input_clips) < self.num_speakers:
             input_clips.append(np.zeros(self.samples_per_clip))
+            source_ids.append('')
         
-        input_clips_tensor = tf.convert_to_tensor(input_clips, dtype=tf.float32)
+        sources_tensor = tf.convert_to_tensor(input_clips, dtype=tf.float32)
         
-        return mixed_tensor, input_clips_tensor
+        return mixed_tensor, sources_tensor, source_ids
+
+    def batch_training_data(self, batch_size: int = 32, wavelet_level: int = 5):
+        """Batch the training data
+        
+        params:
+        - batch_size: int, batch size
+        - wavelet_level: int, wavelet level
+        
+        return:
+        - X: tf.Tensor, mixed waveforms
+        - Y: tf.Tensor, source waveforms
+        """
+        
+        mixed_waveforms = []
+        all_source_waveforms = []
+        all_source_ids = []
+        
+        for _ in range(batch_size):
+            mixed_tensor, sources_tensor, source_ids = self.generate_sample()
+            mixed_waveforms.append(mixed_tensor.numpy()[0])
+            all_source_waveforms.append(sources_tensor.numpy())
+            all_source_ids.append(source_ids)
+        mixed_ids = ["_".join(ids) for ids in all_source_ids]
+
+        wave_dict = makeWaveDictBatch(mixed_waveforms, all_source_waveforms, all_source_ids, mixed_ids)
+
+        X = []
+        Y = []
+
+        for mix_id in mixed_ids:
+            getWaveletTransform(wave_dict, mix_id, wavelet_level)
+            
+            for source_id in wave_dict[mix_id].source_ids:
+                getWaveletTransform(wave_dict, source_id, wavelet_level)
+            
+            mixed_coeffs = wave_dict[mix_id].tensor_coeffs
+            
+            source_coeffs = []
+            for source_id in wave_dict[mix_id].source_ids:
+                source_coeffs.append(wave_dict[source_id].tensor_coeffs)
+                
+            X.append(mixed_coeffs)
+            Y.append(source_coeffs)
+
+        X = tf.convert_to_tensor(X)
+        Y = tf.convert_to_tensor(Y)
+
+        return X, Y
 
 def create_tf_dataset(base_dir, clips_dir, num_speakers,
-                     batch_size=32, buffer_size=1000):
+                     batch_size=32):
     """Create a TensorFlow dataset that generates audio samples on-the-fly"""
     mixer = AudioMixerGenerator(
         base_dir,
@@ -142,52 +195,21 @@ def create_tf_dataset(base_dir, clips_dir, num_speakers,
     
     def generator_fn():
         while True:
-            mixed_audio, input_clips = mixer.generate_sample()
-            yield mixed_audio, input_clips
-    
+            X, Y = mixer.batch_training_data(batch_size, wavelet_level)
+            yield X, Y
+
+    wavelet_level = 5
+    approx_feature_size = mixer.samples_per_clip // (2 ** wavelet_level)
+
     dataset = tf.data.Dataset.from_generator(
         generator_fn,
         output_signature=(
-            tf.TensorSpec(shape=(mixer.samples_per_clip,), dtype=tf.float32),
-            tf.TensorSpec(shape=(mixer.num_speakers, mixer.samples_per_clip), dtype=tf.float32)
+            tf.TensorSpec(shape=(batch_size, wavelet_level + 1, approx_feature_size), dtype=tf.float32),
+            tf.TensorSpec(shape=(batch_size, num_speakers, wavelet_level + 1, approx_feature_size), dtype=tf.float32)
         )
     )
-    
-    # Shuffle, batch, and prefetch for better performance
-    return dataset.shuffle(buffer_size).batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
-class AudioOverlayGenerator:
-    def __init__(self, base_dir, clips_dir):
-        self.base_dir = Path(base_dir)
-        self.clips_dir = Path(clips_dir)
-    
-    def save_to_drive(self, audio_clips, filename_prefix, mount_point="/content/drive/MyDrive/parrotfish/"):
-        """Save audio clips directly to Google Drive"""
-        drive.mount('/content/drive')
-        os.makedirs(mount_point, exist_ok=True)
-        
-        # Save each clip with an index
-        for i, clip in enumerate(audio_clips):
-            output_path = Path(mount_point) / f"{filename_prefix}_clip_{i:03d}.wav"
-            sf.write(str(output_path), clip.numpy(), 16000, format='WAV')
-    
-    def create_sample_dataset(self, num_clips_per_category=10):
-        """Create a small sample dataset and save to Google Drive"""
-        print("Generating sample dataset...")
-        
-        for num_speakers in [2, 3, 4]:
-            generator = AudioMixerGenerator(
-                self.base_dir,
-                self.clips_dir,
-                num_speakers=num_speakers
-            )
-            
-            for i in tqdm(range(num_clips_per_category)):
-                mixed_audio, input_clips = generator.generate_sample()
-                self.save_to_drive(
-                    input_clips,
-                    f"{num_speakers}_speakers_{i:04d}"
-                )
+    return dataset.prefetch(tf.data.AUTOTUNE)
 
 class AudioProcessor:
     def __init__(self, clip_duration_seconds=1.0, window_overlap_ratio=0.1):
@@ -336,29 +358,3 @@ def process_drive_audio(base_folder, output_folder, clip_duration_seconds=1.0, w
     print(f"\nAudio segmentation complete!")
     print(f"Successfully processed {successful_files}/{len(audio_files)} files")
     print(f"Generated approximately {total_clips} clips distributed across subfolders in {output_folder}")
-
-def main():
-    base_dir = Path(__file__).parent
-    clips_dir = base_dir / "casualconversations" / "clips"
-    
-    # Example 1: Process existing audio files in Google Drive
-    base_folder = '/content/drive/MyDrive/parrotfish/data/casual_conversations'
-    output_folder = '/content/drive/MyDrive/parrotfish/data/casual_conversations/clips'
-    process_drive_audio(base_folder, output_folder, clip_duration_seconds=1.0, window_overlap_ratio=0.1)
-    
-    # Example 2: Generate and save new mixed audio clips
-    mixer = AudioMixerGenerator(
-        base_dir, 
-        clips_dir, 
-        num_speakers=2
-    )
-    mixed_audio, input_clips = mixer.generate_sample()
-    
-    generator = AudioOverlayGenerator(
-        base_dir, 
-        clips_dir
-    )
-    generator.save_to_drive(input_clips, "example_2speakers")
-
-if __name__ == "__main__":
-    main()
