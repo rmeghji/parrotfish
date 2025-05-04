@@ -21,7 +21,7 @@ class Config:
     # Model settings
     NUM_COEFFS = 16000  # 1 second at 16kHz
     WAVELET_DEPTH = 5
-    BATCH_SIZE = 8
+    BATCH_SIZE = 16
     CHANNELS = 1  # Mono audio
     NUM_LAYERS = 5
     NUM_INIT_FILTERS = 16 ## was 24
@@ -164,7 +164,7 @@ def zero_pad_sources(sources, max_sources):
 
 # Wavelet Transform Functions
 @tf.keras.utils.register_keras_serializable()
-class DaubechiesWaveletLayer(tf.keras.layers.Layer):
+class DWTLayer(tf.keras.layers.Layer):
     def __init__(self, wavelet_family='db4', mode='periodization', name=None, **kwargs):
         super().__init__(name=name, **kwargs)
         self.wavelet_family = wavelet_family
@@ -266,8 +266,8 @@ class DaubechiesWaveletLayer(tf.keras.layers.Layer):
 
 
 @tf.keras.utils.register_keras_serializable()
-class InverseDaubechiesWaveletLayer(tf.keras.layers.Layer):
-    def __init__(self, wavelet_family='db4',batch_size=8, mode='periodization', name=None, **kwargs):
+class IDWTLayer(tf.keras.layers.Layer):
+    def __init__(self, wavelet_family='db4',batch_size=16, mode='periodization', name=None, **kwargs):
         super().__init__(name=name, **kwargs)
         self.wavelet_family = wavelet_family
         self.mode = mode
@@ -381,7 +381,7 @@ class InverseDaubechiesWaveletLayer(tf.keras.layers.Layer):
 
 
 @tf.keras.utils.register_keras_serializable()
-class EnhancedDownsamplingLayer(tf.keras.layers.Layer):
+class DownsamplingLayer(tf.keras.layers.Layer):
     def __init__(self, num_filters, filter_size, l1_reg=0.0, l2_reg=0.0, **kwargs):
         super().__init__(**kwargs)
         self.num_filters = num_filters
@@ -444,7 +444,7 @@ class EnhancedDownsamplingLayer(tf.keras.layers.Layer):
 
 
 @tf.keras.utils.register_keras_serializable()
-class EnhancedUpsamplingLayer(tf.keras.layers.Layer):
+class UpsamplingLayer(tf.keras.layers.Layer):
     def __init__(self, num_filters, filter_size, l1_reg=0.0, l2_reg=0.0, **kwargs):
         super().__init__(**kwargs)
         self.num_filters = num_filters
@@ -567,9 +567,9 @@ class EnhancedUpsamplingLayer(tf.keras.layers.Layer):
         return config
 
 
-# Enhanced Skip Connection
+# Gated Skip Connection
 @tf.keras.utils.register_keras_serializable()
-class EnhancedSkipConnection(tf.keras.layers.Layer):
+class GatedSkipConnection(tf.keras.layers.Layer):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         
@@ -623,9 +623,9 @@ class EnhancedSkipConnection(tf.keras.layers.Layer):
         return config
 
 
-# Improved Wavelet U-Net Model
+#  Wavelet U-Net Model
 @tf.keras.utils.register_keras_serializable()
-class ImprovedWaveletUNet(tf.keras.Model):
+class WaveletUNet(tf.keras.Model):
     def __init__(self, num_coeffs, wavelet_depth, batch_size, channels, num_layers, 
                  num_init_filters, filter_size, merge_filter_size, l1_reg, l2_reg,
                  max_sources=4, wavelet_family='db4', **kwargs):
@@ -714,7 +714,7 @@ class ImprovedWaveletUNet(tf.keras.Model):
             num_filters = self.num_init_filters + (self.num_init_filters * i)
             
             # Main downsampling block
-            self.downsampling_blocks[block_name] = EnhancedDownsamplingLayer(
+            self.downsampling_blocks[block_name] = DownsamplingLayer(
                 num_filters, 
                 self.filter_size, 
                 l1_reg=self.l1_reg, 
@@ -723,13 +723,13 @@ class ImprovedWaveletUNet(tf.keras.Model):
             )
             
             # DWT layer
-            self.dwt_layers[block_name] = DaubechiesWaveletLayer(
+            self.dwt_layers[block_name] = DWTLayer(
                 wavelet_family=self.wavelet_family,
                 name=f'dwt_{block_name}'
             )
             
             # Post-DWT processing
-            self.down_process_blocks[block_name] = EnhancedUpsamplingLayer(
+            self.down_process_blocks[block_name] = UpsamplingLayer(
                 num_filters * 2,  # Double channels after DWT
                 self.filter_size,
                 l1_reg=self.l1_reg,
@@ -761,13 +761,13 @@ class ImprovedWaveletUNet(tf.keras.Model):
             num_filters = self.num_init_filters + (self.num_init_filters * (self.num_layers - i - 1))
             
             # Inverse DWT layer
-            self.idwt_layers[block_name] = InverseDaubechiesWaveletLayer(
+            self.idwt_layers[block_name] = IDWTLayer(
                 wavelet_family=self.wavelet_family,
                 name=f'idwt_{block_name}'
             )
             
             # Pre-skip connection processing
-            self.up_process_blocks[block_name] = EnhancedUpsamplingLayer(
+            self.up_process_blocks[block_name] = UpsamplingLayer(
                 num_filters,
                 self.filter_size,
                 l1_reg=self.l1_reg,
@@ -775,8 +775,8 @@ class ImprovedWaveletUNet(tf.keras.Model):
                 name=f'up_process_{block_name}'
             )
             
-            # Enhanced skip connection
-            self.skip_connections[block_name] = EnhancedSkipConnection(
+            # Gated skip connection
+            self.skip_connections[block_name] = GatedSkipConnection(
                 name=f'skip_connection_{block_name}'
             )
             
@@ -965,7 +965,7 @@ def pit_loss(y_true, y_pred):
         
         # For each sample in batch, calculate loss for this permutation
         batch_losses = []
-        for b in range(8):
+        for b in range(16):
             loss = 0.0
             for i, p in enumerate(perm):
                 loss += pairwise_mse[b, i, p]
@@ -1058,7 +1058,7 @@ def fast_pit_loss(y_true, y_pred):
 
 # Data Generator for TensorFlow
 class AudioMixtureDataGenerator(tf.keras.utils.Sequence):
-    def __init__(self, source_combinations, batch_size=8, max_sources=4, shuffle=True,
+    def __init__(self, source_combinations, batch_size=16, max_sources=4, shuffle=True,
                  workers=4, use_multiprocessing=True):
         self.source_combinations = source_combinations
         self.batch_size = batch_size
@@ -1153,7 +1153,7 @@ def train_model():
     )
     
     # Create the model
-    model = ImprovedWaveletUNet(
+    model = WaveletUNet(
         num_coeffs=config.NUM_COEFFS,
         wavelet_depth=config.WAVELET_DEPTH,
         batch_size=config.BATCH_SIZE,
@@ -1262,12 +1262,13 @@ def load_model_with_fallbacks(model_dir):
         try:
             print("Attempting to load SavedModel format...")
             custom_objects = {
-                'ImprovedWaveletUNet': ImprovedWaveletUNet,
-                'DaubechiesWaveletLayer': DaubechiesWaveletLayer,
-                'InverseDaubechiesWaveletLayer': InverseDaubechiesWaveletLayer,
-                'EnhancedDownsamplingLayer': EnhancedDownsamplingLayer,
-                'EnhancedUpsamplingLayer': EnhancedUpsamplingLayer,
-                'EnhancedSkipConnection': EnhancedSkipConnection,
+                'WaveletUNet': WaveletUNet,
+                'DWTLayer': DWTLayer,
+                'IDWTLayer': IDWTLayer,
+                'DownsamplingLayer': DownsamplingLayer,
+                'UpsamplingLayer': UpsamplingLayer,
+                'GatedSkipConnection': GatedSkipConnection,
+                'pit_loss': pit_loss,
                 'fast_pit_loss': fast_pit_loss,
                 'gelu': gelu
             }
@@ -1287,12 +1288,12 @@ def load_model_with_fallbacks(model_dir):
         try:
             print("Attempting to load H5 format...")
             custom_objects = {
-                'ImprovedWaveletUNet': ImprovedWaveletUNet,
-                'DaubechiesWaveletLayer': DaubechiesWaveletLayer,
-                'InverseDaubechiesWaveletLayer': InverseDaubechiesWaveletLayer,
-                'EnhancedDownsamplingLayer': EnhancedDownsamplingLayer,
-                'EnhancedUpsamplingLayer': EnhancedUpsamplingLayer,
-                'EnhancedSkipConnection': EnhancedSkipConnection,
+                'WaveletUNet': WaveletUNet,
+                'DWTLayer': DWTLayer,
+                'IDWTLayer': IDWTLayer,
+                'DownsamplingLayer': DownsamplingLayer,
+                'UpsamplingLayer': UpsamplingLayer,
+                'GatedSkipConnection': GatedSkipConnection,
                 'fast_pit_loss': fast_pit_loss,
                 'gelu': gelu
             }
@@ -1317,12 +1318,12 @@ def load_model_with_fallbacks(model_dir):
                 model_json = json_file.read()
             
             custom_objects = {
-                'ImprovedWaveletUNet': ImprovedWaveletUNet,
-                'DaubechiesWaveletLayer': DaubechiesWaveletLayer,
-                'InverseDaubechiesWaveletLayer': InverseDaubechiesWaveletLayer,
-                'EnhancedDownsamplingLayer': EnhancedDownsamplingLayer,
-                'EnhancedUpsamplingLayer': EnhancedUpsamplingLayer,
-                'EnhancedSkipConnection': EnhancedSkipConnection
+                'WaveletUNet': WaveletUNet,
+                'DWTLayer': DWTLayer,
+                'IDWTLayer': IDWTLayer,
+                'DownsamplingLayer': DownsamplingLayer,
+                'UpsamplingLayer': UpsamplingLayer,
+                'GatedSkipConnection': GatedSkipConnection
             }
             
             model = tf.keras.models.model_from_json(
@@ -1438,7 +1439,9 @@ if __name__ == "__main__":
         test_combinations,
         batch_size=config.BATCH_SIZE,
         max_sources=config.MAX_SOURCES,
-        shuffle=False
+        shuffle=False,
+        workers=4,
+        use_multiprocessing=True
     )
     
     # Evaluate the model
@@ -1467,4 +1470,4 @@ if __name__ == "__main__":
     plt.savefig(os.path.join(config.CHECKPOINT_DIR, 'training_history.png'))
     plt.show()
     
-    print("Improved Wavelet U-Net pipeline completed successfully!")
+    print(" Wavelet U-Net pipeline completed successfully!")
