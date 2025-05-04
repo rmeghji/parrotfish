@@ -1463,30 +1463,30 @@ def evaluate_model(model, test_generator, num_examples=5):
     
 #     print(" Wavelet U-Net pipeline completed successfully!")
 
-def main():
+def main(clips_dir):
     """Main function to run the audio source separation pipeline"""
     config = Config()
     
     print("Starting audio source separation pipeline...")
     
     # Step 1: Process raw audio files into clips if needed
-    if not os.path.exists(config.CLIPS_DIR) or len(os.listdir(config.CLIPS_DIR)) == 0:
+    if not os.path.exists(clips_dir) or len(os.listdir(clips_dir)) == 0:
         print(f"Processing raw audio files from {config.DATA_DIR} into clips...")
         process_audio_files(
             base_folder=config.DATA_DIR,
-            output_folder=config.CLIPS_DIR,
+            output_folder=clips_dir,
             clip_duration_seconds=1.0,
             window_overlap_ratio=0.1,
             batch_size=100
         )
     else:
-        print(f"Using existing clips in {config.CLIPS_DIR}")
+        print(f"Using existing clips in {clips_dir}")
     
     # Step 2: Create TensorFlow dataset for training
     print("Creating TensorFlow dataset for training...")
     dataset = create_tf_dataset(
         base_dir=config.DATA_DIR,
-        clips_dir=config.CLIPS_DIR,
+        clips_dir=clips_dir,
         num_speakers=config.MAX_SOURCES,
         batch_size=config.BATCH_SIZE
     )
