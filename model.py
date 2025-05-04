@@ -275,7 +275,7 @@ class DWTLayer(tf.keras.layers.Layer):
 
 @tf.keras.utils.register_keras_serializable()
 class IDWTLayer(tf.keras.layers.Layer):
-    def __init__(self, wavelet_family='db4',batch_size=16, mode='periodization', name=None, **kwargs):
+    def __init__(self, wavelet_family='db4',batch_size=8, mode='periodization', name=None, **kwargs):
         super().__init__(name=name, **kwargs)
         self.wavelet_family = wavelet_family
         self.mode = mode
@@ -1049,7 +1049,7 @@ def fast_pit_loss(y_true, y_pred):
 
 # Data Generator for TensorFlow
 class AudioMixtureDataGenerator(tf.keras.utils.Sequence):
-    def __init__(self, source_combinations, batch_size=16, max_sources=4, shuffle=True,
+    def __init__(self, source_combinations, batch_size=8, max_sources=4, shuffle=True,
                  workers=4, use_multiprocessing=True):
         self.source_combinations = source_combinations
         self.batch_size = batch_size
