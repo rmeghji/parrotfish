@@ -11,6 +11,7 @@ from tqdm import tqdm
 import pywt
 import glob
 import time
+import gc
 
 class Waveform:
     """Class to store waveform data with associated metadata"""
@@ -238,19 +239,64 @@ class AudioProcessor:
             output_path = os.path.join(base_output_dir, f"{subdir_name}.tfrecord")
             self.convert_directory_to_tfrecord(subdir, output_path)
     
-    def convert_dataset_to_tfrecords_in_batches(self, base_input_dir, base_output_dir, batch_size=5):
-        """Convert an entire dataset organized in subdirectories to TFRecords using batching."""
+    def convert_dataset_to_tfrecords_in_batches(self, base_input_dir, base_output_dir, batch_size=20, pause_duration=180):
+        """Convert dataset to TFRecords, skipping already processed and verified subdirectories."""
+        
         # Create output directory if it doesn't exist
         os.makedirs(base_output_dir, exist_ok=True)
         
-        # Get all subdirectories
-        subdirs = [d for d in glob.glob(os.path.join(base_input_dir, '*')) if os.path.isdir(d)]
-        print(f"Found {len(subdirs)} subdirectories to process")
+        # Function to verify TFRecord file
+        def verify_tfrecord(tfrecord_path):
+            """Verify that a TFRecord file is valid and contains data."""
+            try:
+                # Try to read the first example from the TFRecord
+                dataset = tf.data.TFRecordDataset([tfrecord_path])
+                iterator = iter(dataset)
+                first_example = next(iterator)
+                return True
+            except Exception as e:
+                print(f"Error verifying {tfrecord_path}: {e}")
+                return False
         
-        # Prepare batches of subdirectories
-        for batch_idx in range(0, len(subdirs), batch_size):
-            batch_subdirs = subdirs[batch_idx:batch_idx + batch_size]
-            print(f"\nProcessing batch {batch_idx//batch_size + 1}/{(len(subdirs)-1)//batch_size + 1} with {len(batch_subdirs)} subdirectories")
+        # Get all subdirectories
+        all_subdirs = [d for d in glob.glob(os.path.join(base_input_dir, '*')) if os.path.isdir(d)]
+        
+        # Check which subdirectories have already been processed with verification
+        processed_subdirs = []
+        invalid_tfrecords = []
+        
+        print("Checking for already processed subdirectories...")
+        for subdir in tqdm(all_subdirs, desc="Verifying existing TFRecords"):
+            subdir_name = os.path.basename(subdir)
+            output_path = os.path.join(base_output_dir, f"{subdir_name}.tfrecord")
+            
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                if verify_tfrecord(output_path):
+                    processed_subdirs.append(subdir)
+                else:
+                    invalid_tfrecords.append(output_path)
+                    print(f"Warning: TFRecord for {subdir_name} exists but appears invalid. Will reprocess.")
+        
+        # Filter out already processed subdirectories
+        subdirs_to_process = [d for d in all_subdirs if d not in processed_subdirs]
+        
+        print(f"Found {len(all_subdirs)} total subdirectories")
+        print(f"Skipping {len(processed_subdirs)} already processed and verified subdirectories")
+        if invalid_tfrecords:
+            print(f"Found {len(invalid_tfrecords)} invalid TFRecord files that will be reprocessed")
+        print(f"Will process {len(subdirs_to_process)} remaining subdirectories")
+        
+        # If all subdirectories have been processed, we're done
+        if not subdirs_to_process:
+            print("All subdirectories have already been processed successfully. Nothing to do.")
+            return
+        
+        # Process remaining subdirectories in batches
+        for batch_idx in range(0, len(subdirs_to_process), batch_size):
+            batch_start_time = time.time()
+            
+            batch_subdirs = subdirs_to_process[batch_idx:batch_idx + batch_size]
+            print(f"\nProcessing batch {batch_idx//batch_size + 1}/{(len(subdirs_to_process)-1)//batch_size + 1} with {len(batch_subdirs)} subdirectories")
             
             # Collect all audio files and their corresponding output paths
             audio_files_batch = []
@@ -275,10 +321,26 @@ class AudioProcessor:
             # Process this batch
             self.process_audio_files_batch(audio_files_batch, output_tfrecord_paths)
             
-            # Optional: Add a small delay between batches to allow system resources to reset
-            if batch_idx + batch_size < len(subdirs):
-                print("Waiting 5 seconds before starting next batch...")
-                time.sleep(5)
+            # Verify the newly created TFRecord files
+            print("Verifying newly created TFRecord files...")
+            for output_path in output_tfrecord_paths:
+                if not verify_tfrecord(output_path):
+                    print(f"Warning: Failed to verify newly created {output_path}")
+                    # You could add retry logic here if needed
+            
+            # Calculate batch processing time
+            batch_end_time = time.time()
+            batch_duration = batch_end_time - batch_start_time
+            print(f"Batch processed in {batch_duration:.2f} seconds")
+            
+            # Add longer pause between batches
+            if batch_idx + batch_size < len(subdirs_to_process):                
+                print(f"Waiting {pause_duration:.1f} seconds before starting next batch...")
+                time.sleep(pause_duration)
+                
+                # Add explicit garbage collection
+                print("Running garbage collection...")
+                gc.collect()
 
 def process_audio_files(base_folder, output_folder, clip_duration_seconds=1.0, window_overlap_ratio=0.1, batch_size=100):
     """Process all audio files in a folder and save clips to output folder with subfolder distribution"""
