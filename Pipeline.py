@@ -10,6 +10,7 @@ import tensorflow as tf
 from tqdm import tqdm
 import pywt
 import glob
+import time
 
 class Waveform:
     """Class to store waveform data with associated metadata"""
