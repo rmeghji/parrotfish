@@ -15,7 +15,7 @@ import time
 from Wavelets import getWaveletTransform, makeWaveDictBatch
 
 class AudioMixerGenerator:
-    def __init__(self, base_dir, clips_dir, num_speakers=2, batch_size=1000):
+    def __init__(self, base_dir, clips_dir, num_speakers=4, batch_size=1000):
         """
         Initialize the AudioMixerGenerator for mixing pre-processed 1-second clips.
         
@@ -164,20 +164,29 @@ class AudioMixerGenerator:
         X = []
         Y = []
 
-        for mix_id in mixed_ids:
-            getWaveletTransform(wave_dict, mix_id, wavelet_level)
+        # for mix_id in mixed_ids:
+            # getWaveletTransform(wave_dict, mix_id, wavelet_level)
             
-            for source_id in wave_dict[mix_id].source_ids:
-                getWaveletTransform(wave_dict, source_id, wavelet_level)
+            # for source_id in wave_dict[mix_id].source_ids:
+            #     getWaveletTransform(wave_dict, source_id, wavelet_level)
             
-            mixed_coeffs = wave_dict[mix_id].tensor_coeffs
+            # mixed_coeffs = wave_dict[mix_id].tensor_coeffs
             
-            source_coeffs = []
-            for source_id in wave_dict[mix_id].source_ids:
-                source_coeffs.append(wave_dict[source_id].tensor_coeffs)
+            # source_coeffs = []
+            # for source_id in wave_dict[mix_id].source_ids:
+            #     source_coeffs.append(wave_dict[source_id].tensor_coeffs)
                 
-            X.append(mixed_coeffs)
-            Y.append(source_coeffs)
+            # X.append(mixed_coeffs)
+            # Y.append(source_coeffs)        
+
+        for mix_id in mixed_ids:
+            X.append(wave_dict[mix_id].waveform)
+        
+        for source_ids in all_source_ids:
+            source_list = []
+            for source_id in source_ids:
+                source_list.append(wave_dict[source_id].waveform)
+            Y.append(source_list)
 
         X = tf.convert_to_tensor(X)
         Y = tf.convert_to_tensor(Y)
@@ -201,11 +210,20 @@ def create_tf_dataset(base_dir, clips_dir, num_speakers,
     wavelet_level = 5
     approx_feature_size = mixer.samples_per_clip // (2 ** wavelet_level)
 
+    # for wavelet version
+    # dataset = tf.data.Dataset.from_generator(
+    #     generator_fn,
+    #     output_signature=(
+    #         tf.TensorSpec(shape=(batch_size, wavelet_level + 1, approx_feature_size), dtype=tf.float32),
+    #         tf.TensorSpec(shape=(batch_size, num_speakers, wavelet_level + 1, approx_feature_size), dtype=tf.float32)
+    #     )
+    # )
+
     dataset = tf.data.Dataset.from_generator(
         generator_fn,
         output_signature=(
-            tf.TensorSpec(shape=(batch_size, wavelet_level + 1, approx_feature_size), dtype=tf.float32),
-            tf.TensorSpec(shape=(batch_size, num_speakers, wavelet_level + 1, approx_feature_size), dtype=tf.float32)
+            tf.TensorSpec(shape=(batch_size, mixer.samples_per_clip), dtype=tf.float32),
+            tf.TensorSpec(shape=(batch_size, num_speakers, mixer.samples_per_clip), dtype=tf.float32)
         )
     )
 

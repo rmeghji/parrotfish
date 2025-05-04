@@ -43,36 +43,7 @@ class WaveData:
             "has_tensor_coeffs": self.tensor_coeffs is not None,
             "waveform_shape": self.waveform.shape if self.waveform is not None else None
         }
-
-# def makeWaveDict(mixed_waveform) -> dict:
-#     '''
-#     Make a dictionary of wavelet data
-
-#     params:
-#     - audio_clips: np.ndarray, array of audio clips
-
-#     return: 
-#     - data: dict, dictionary of wavelet data
-#     '''
-
-#     data = {}
-
-#     for i, audio_clip in enumerate(tqdm.tqdm(audio_clips, desc=f'Loading waveforms', total=len(audio_clips), leave=False)):
-#         # print(f"Loading {filename}")
-
-#         # Load the waveform
-#         waveform, _ =librosa.load(filename, sr=SR, mono=False)
-#         # print(f"Waveform shape: {waveform.shape}")
-
-#         # Transpose to have time as first dimension
-#         np.transpose(waveform)
-
-#         # print(f'waveform shape: {waveform.shape}')
-
-#         # Create a WaveData object
-#         data[filename] = WaveData(filename, waveform, None)
-#     return data
-
+        
 def makeWaveDictBatch(mixed_waveforms: list, all_source_waveforms: list, all_source_ids: list, mixed_ids: list) -> dict:
     '''
     Make a dictionary of wavelet data
