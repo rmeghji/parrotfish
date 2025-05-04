@@ -6,29 +6,37 @@ from glob import glob
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from itertools import combinations, permutations
+import soundfile as sf
 # import tensorflow.keras.backend as K
 import pywt
+import Pipeline
+from Pipeline import (
+    AudioMixerGenerator, 
+    create_tf_dataset, 
+    process_audio_files
+)
 
 
 # Configuration
 class Config:
     # Data settings
-    DATA_DIR = "data/cc_1"
+    DATA_DIR = "data/audio"
+    CLIPS_DIR = "data/clips"
     SAMPLE_RATE = 16000
     SEGMENT_LENGTH = 16000  # 1 second at 16kHz
-    MAX_SOURCES = 4
+    
     
     # Model settings
     NUM_COEFFS = 16000  # 1 second at 16kHz
     WAVELET_DEPTH = 5
-    BATCH_SIZE = 16
+    BATCH_SIZE = 16 # 16-32
     CHANNELS = 1  # Mono audio
-    NUM_LAYERS = 5
-    NUM_INIT_FILTERS = 16 ## was 24
-    FILTER_SIZE = 8 # was 16
-    MERGE_FILTER_SIZE = 4 # was 5
-    L1_REG = 1e-5
-    L2_REG = 1e-5
+    NUM_LAYERS = 10 # 10-12
+    NUM_INIT_FILTERS = 24 ## was 24
+    FILTER_SIZE = 16 # was 16 should be 16
+    MERGE_FILTER_SIZE = 8 # was 5 should be like 8
+    L1_REG = 1e-6
+    L2_REG = 1e-6
     
     # Training settings
     LEARNING_RATE = 1e-4
@@ -39,8 +47,8 @@ class Config:
     
     # Mixture generation
     MIN_SOURCES = 2
-    MAX_SOURCES = 4
-    NUM_EXAMPLES = 31000
+    MAX_SOURCES = 2 # first curriculum learning
+    NUM_EXAMPLES = BATCH_SIZE * 2000
     
     # Wavelet settings
     WAVELET_FAMILY = 'db4'  # Daubechies wavelet with 4 vanishing moments
@@ -934,46 +942,29 @@ class WaveletUNet(tf.keras.Model):
 # Permutation Invariant Training Loss
 def pit_loss(y_true, y_pred):
     """
-    Implement permutation invariant training loss.
+    Simplified Permutation Invariant Training loss for 2 sources only.
     
     Args:
-        y_true: Ground truth sources [batch, max_sources, time, channels]
-        y_pred: Predicted sources [batch, max_sources, time, channels]
+        y_true: Ground truth sources [batch, 2, time, channels]
+        y_pred: Predicted sources [batch, 2, time, channels]
         
     Returns:
-        The minimum MSE loss across all possible permutations
+        The minimum MSE loss across the two possible permutations
     """
-    batch_size = tf.shape(y_true)[0]
-    num_sources = tf.shape(y_true)[1]
+    # Calculate MSE for the original permutation (0,1)
+    mse_0_0 = tf.reduce_mean(tf.square(y_true[:, 0] - y_pred[:, 0]), axis=[1, 2])
+    mse_1_1 = tf.reduce_mean(tf.square(y_true[:, 1] - y_pred[:, 1]), axis=[1, 2])
+    perm1_loss = (mse_0_0 + mse_1_1) / 2.0
     
-    # Calculate pairwise MSE for all combinations of true and predicted sources
-    # Expand dims to create tensors of shape [batch, num_true, num_pred, time, channels]
-    y_true_expanded = tf.expand_dims(y_true, axis=2)  # [batch, num_true, 1, time, channels]
-    y_pred_expanded = tf.expand_dims(y_pred, axis=1)  # [batch, 1, num_pred, time, channels]
+    # Calculate MSE for the swapped permutation (1,0)
+    mse_0_1 = tf.reduce_mean(tf.square(y_true[:, 0] - y_pred[:, 1]), axis=[1, 2])
+    mse_1_0 = tf.reduce_mean(tf.square(y_true[:, 1] - y_pred[:, 0]), axis=[1, 2])
+    perm2_loss = (mse_0_1 + mse_1_0) / 2.0
     
-    # Calculate MSE for each pair
-    pairwise_mse = tf.reduce_mean(tf.square(y_true_expanded - y_pred_expanded), axis=[3, 4])
+    # Choose the minimum loss between the two permutations
+    min_loss = tf.minimum(perm1_loss, perm2_loss)
     
-    # Compute total loss for each possible permutation
-    min_loss = tf.ones((batch_size,), dtype=tf.float32) * float('inf')
-    
-    # Limited number of sources (2-4), so we can enumerate all permutations
-    all_perms = list(permutations(range(4)))
-    
-    for perm in all_perms:
-        perm_tensor = tf.convert_to_tensor(perm, dtype=tf.int32)
-        
-        # For each sample in batch, calculate loss for this permutation
-        batch_losses = []
-        for b in range(16):
-            loss = 0.0
-            for i, p in enumerate(perm):
-                loss += pairwise_mse[b, i, p]
-            batch_losses.append(loss / tf.cast(num_sources, tf.float32))
-        
-        batch_losses = tf.stack(batch_losses)
-        min_loss = tf.minimum(min_loss, batch_losses)
-    
+    # Return the average loss across the batch
     return tf.reduce_mean(min_loss)
 
 
@@ -1337,7 +1328,7 @@ def load_model_with_fallbacks(model_dir):
             # Recompile the model
             model.compile(
                 optimizer=tf.keras.optimizers.Adam(learning_rate=config.LEARNING_RATE),
-                loss=fast_pit_loss,
+                loss=pit_loss,
                 metrics=['mse']
             )
             
@@ -1427,27 +1418,209 @@ def evaluate_model(model, test_generator, num_examples=5):
     return sdrs
 
 
-if __name__ == "__main__":
-    # Train the model
-    model, history = train_model()
+# if __name__ == "__main__":
+#     # Train the model
+#     model, history = train_model()
     
-    # Create test generator
-    segments = glob("content/preprocessed/segment_*.npy")
-    test_combinations = create_source_combinations(segments[:100], num_examples=100)
+#     # Create test generator
+#     segments = glob("content/preprocessed/segment_*.npy")
+#     test_combinations = create_source_combinations(segments[:100], num_examples=100)
     
-    test_generator = AudioMixtureDataGenerator(
-        test_combinations,
-        batch_size=config.BATCH_SIZE,
-        max_sources=config.MAX_SOURCES,
-        shuffle=False,
-        workers=4,
-        use_multiprocessing=True
+#     test_generator = AudioMixtureDataGenerator(
+#         test_combinations,
+#         batch_size=config.BATCH_SIZE,
+#         max_sources=config.MAX_SOURCES,
+#         shuffle=False,
+#         workers=4,
+#         use_multiprocessing=True
+#     )
+    
+#     # Evaluate the model
+#     evaluate_model(model, test_generator)
+    
+#     # Plot training history
+#     plt.figure(figsize=(12, 4))
+    
+#     plt.subplot(1, 2, 1)
+#     plt.plot(history.history['loss'])
+#     plt.plot(history.history['val_loss'])
+#     plt.title('Model Loss')
+#     plt.ylabel('Loss')
+#     plt.xlabel('Epoch')
+#     plt.legend(['Train', 'Validation'], loc='upper right')
+    
+#     plt.subplot(1, 2, 2)
+#     plt.plot(history.history['mse'])
+#     plt.plot(history.history['val_mse'])
+#     plt.title('Model MSE')
+#     plt.ylabel('MSE')
+#     plt.xlabel('Epoch')
+#     plt.legend(['Train', 'Validation'], loc='upper right')
+    
+#     plt.tight_layout()
+#     plt.savefig(os.path.join(config.CHECKPOINT_DIR, 'training_history.png'))
+#     plt.show()
+    
+#     print(" Wavelet U-Net pipeline completed successfully!")
+
+def main():
+    """Main function to run the audio source separation pipeline"""
+    config = Config()
+    
+    print("Starting audio source separation pipeline...")
+    
+    # Step 1: Process raw audio files into clips if needed
+    if not os.path.exists(config.CLIPS_DIR) or len(os.listdir(config.CLIPS_DIR)) == 0:
+        print(f"Processing raw audio files from {config.DATA_DIR} into clips...")
+        process_audio_files(
+            base_folder=config.DATA_DIR,
+            output_folder=config.CLIPS_DIR,
+            clip_duration_seconds=1.0,
+            window_overlap_ratio=0.1,
+            batch_size=100
+        )
+    else:
+        print(f"Using existing clips in {config.CLIPS_DIR}")
+    
+    # Step 2: Create TensorFlow dataset for training
+    print("Creating TensorFlow dataset for training...")
+    dataset = create_tf_dataset(
+        base_dir=config.DATA_DIR,
+        clips_dir=config.CLIPS_DIR,
+        num_speakers=config.MAX_SOURCES,
+        batch_size=config.BATCH_SIZE
     )
     
-    # Evaluate the model
-    evaluate_model(model, test_generator)
     
-    # Plot training history
+    
+    # Split into training and validation sets
+    train_size = int(config.NUM_EXAMPLES * (1 - config.VAL_SPLIT))
+    val_size = int(config.NUM_EXAMPLES * config.VAL_SPLIT)
+    
+    train_steps = int(train_size / config.BATCH_SIZE)
+    val_steps = int(val_size / config.BATCH_SIZE)
+    
+    train_dataset = dataset.take(train_size)
+    val_dataset = dataset.skip(train_size).take(val_size)
+    
+    # print(tf.shape(train_dataset))
+    
+    print(f"Training dataset created with {train_size} examples")
+    print(f"Validation dataset created with {int(config.NUM_EXAMPLES * config.VAL_SPLIT)} examples")
+    
+    # Step 3: Create and compile the model
+    print("Creating Wavelet U-Net model...")
+    model = WaveletUNet(
+        num_coeffs=config.NUM_COEFFS,
+        wavelet_depth=config.WAVELET_DEPTH,
+        batch_size=config.BATCH_SIZE,
+        channels=config.CHANNELS,
+        num_layers=config.NUM_LAYERS,
+        num_init_filters=config.NUM_INIT_FILTERS,
+        filter_size=config.FILTER_SIZE,
+        merge_filter_size=config.MERGE_FILTER_SIZE,
+        l1_reg=config.L1_REG,
+        l2_reg=config.L2_REG,
+        max_sources=config.MAX_SOURCES,
+        wavelet_family=config.WAVELET_FAMILY
+    )
+    
+    # Compile the model
+    print("Compiling model with PIT loss...")
+    optimizer = tf.keras.optimizers.Adam(learning_rate=config.LEARNING_RATE)
+    # Initialize the model with a dummy input to build the graph
+    dummy_input = tf.zeros((config.BATCH_SIZE, config.SEGMENT_LENGTH, 1))
+    _ = model(dummy_input)
+    model.compile(
+        optimizer=optimizer,
+        loss=pit_loss,  # Use faster PIT loss implementation
+        metrics=['mse']
+    )
+    
+    model.summary()
+    
+    # Step 4: Set up callbacks
+    print("Setting up training callbacks...")
+    os.makedirs(config.CHECKPOINT_DIR, exist_ok=True)
+    callbacks = [
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=os.path.join(config.CHECKPOINT_DIR, 'wavelet_unet_{epoch:02d}_{val_loss:.4f}.keras'),
+            save_best_only=True,
+            monitor='val_loss',
+            mode='min',
+            save_weights_only=False,
+            verbose=1
+        ),
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=os.path.join(config.CHECKPOINT_DIR, 'wavelet_unet_{epoch:02d}_{val_loss:.4f}_weightsonly.weights.h5'),
+            save_best_only=True,
+            monitor='val_loss',
+            mode='min',
+            save_weights_only=True,
+            verbose=1
+        ),
+        tf.keras.callbacks.EarlyStopping(
+            monitor='val_loss',
+            patience=10,
+            restore_best_weights=True,
+            verbose=1
+        ),
+        tf.keras.callbacks.ReduceLROnPlateau(
+            monitor='val_loss',
+            factor=0.5,
+            patience=5,
+            min_lr=1e-6,
+            verbose=1
+        ),
+        tf.keras.callbacks.TensorBoard(
+            log_dir=os.path.join(config.CHECKPOINT_DIR, 'logs'),
+            histogram_freq=1,
+            update_freq='epoch'
+        )
+    ]
+    
+    # Step 5: Train the model
+    print(f"Training model for {config.EPOCHS} epochs...")
+    history = model.fit(
+        train_dataset,
+        validation_data=val_dataset,
+        epochs=config.EPOCHS,
+        callbacks=callbacks,
+        steps_per_epoch=train_steps,
+        validation_steps=val_steps,
+    )
+    
+    # Step 6: Save the final model
+    print("Saving trained model...")
+    model_save_path = os.path.join(config.CHECKPOINT_DIR, 'wavelet_unet_final.keras')
+    
+    # Save model architecture as JSON
+    model_json = model.to_json()
+    with open(os.path.join(config.CHECKPOINT_DIR, 'model_architecture.json'), 'w') as json_file:
+        json_file.write(model_json)
+    
+    # Save weights
+    model.save_weights(os.path.join(config.CHECKPOINT_DIR, 'model_weights.h5'))
+    
+    # Try to save in TensorFlow SavedModel format
+    try:
+        saved_model_path = os.path.join(config.CHECKPOINT_DIR, 'wavelet_unet_savedmodel')
+        tf.saved_model.save(model, saved_model_path)
+        print(f"Model successfully saved to {saved_model_path}")
+    except Exception as e:
+        print(f"Error saving in SavedModel format: {e}")
+        print("Falling back to H5 format only")
+    
+    try:
+        # Save in H5 format
+        model.save(model_save_path, save_format='h5')
+        print(f"Model successfully saved to {model_save_path}")
+    except Exception as e:
+        print(f"Error saving in H5 format: {e}")
+        print("Model is saved as architecture + weights only")
+    
+    # Step 7: Plot training history
+    print("Plotting training history...")
     plt.figure(figsize=(12, 4))
     
     plt.subplot(1, 2, 1)
@@ -1468,6 +1641,70 @@ if __name__ == "__main__":
     
     plt.tight_layout()
     plt.savefig(os.path.join(config.CHECKPOINT_DIR, 'training_history.png'))
-    plt.show()
     
-    print(" Wavelet U-Net pipeline completed successfully!")
+    print("Wavelet U-Net pipeline completed successfully!")
+    return model, history
+
+
+def test_separation(model, audio_file, output_dir="separated"):
+    """Test the model on a new audio file"""
+    # Create output directory
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Load audio
+    audio, sample_rate = sf.read(audio_file)
+    
+    # Convert to mono if stereo
+    if len(audio.shape) > 1:
+        audio = audio.mean(axis=1)
+    
+    # Ensure sample rate is 16kHz
+    if sample_rate != 16000:
+        print(f"Warning: Audio file sample rate is {sample_rate}Hz (expected 16kHz)")
+        # Implement resampling if needed
+    
+    # Normalize
+    audio = audio / np.max(np.abs(audio))
+    
+    # Process in 1-second chunks
+    chunk_size = 16000
+    num_chunks = len(audio) // chunk_size
+    
+    # If audio is shorter than 1 second, pad with zeros
+    if len(audio) < chunk_size:
+        audio = np.pad(audio, (0, chunk_size - len(audio)))
+        num_chunks = 1
+    
+    # Initialize arrays for separated sources
+    separated_sources = []
+    for i in range(Config.MAX_SOURCES):
+        separated_sources.append(np.zeros(len(audio)))
+    
+    # Process each chunk
+    for i in range(num_chunks):
+        start_idx = i * chunk_size
+        end_idx = start_idx + chunk_size
+        chunk = audio[start_idx:end_idx]
+        
+        # Reshape for model input
+        chunk_input = chunk.reshape(1, chunk_size, 1)
+        
+        # Predict separated sources
+        predictions = model.predict(chunk_input)
+        
+        # Predictions shape: [1, max_sources, chunk_size, 1]
+        for j in range(Config.MAX_SOURCES):
+            source_chunk = predictions[0, j, :, 0]
+            separated_sources[j][start_idx:end_idx] = source_chunk
+    
+    # Save separated sources
+    for i, source in enumerate(separated_sources):
+        output_path = os.path.join(output_dir, f"source_{i+1}.wav")
+        sf.write(output_path, source, 16000)
+    
+    print(f"Separated sources saved to {output_dir}")
+
+
+if __name__ == "__main__":
+    # Run the main pipeline
+    model, history = main()

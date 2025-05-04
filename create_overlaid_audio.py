@@ -3,12 +3,12 @@ import os
 import random
 from pathlib import Path
 import numpy as np
-from moviepy.editor import VideoFileClip
+# from moviepy.editor import VideoFileClip
 from scipy.io import wavfile
 from scipy.signal import windows
 from tqdm import tqdm
 import soundfile as sf
-from google.colab import drive
+# from google.colab import drive
 import io
 import tensorflow as tf
 import time
