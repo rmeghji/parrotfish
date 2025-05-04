@@ -95,6 +95,64 @@ class AudioProcessor:
         except Exception as e:
             print(f"Error processing {file_path}: {e}")
             return None
+
+    #### TFRecord Functions ####
+    def serialize_audio(audio_path):
+        """Convert a single audio file to TFRecord format features."""
+        audio_binary = tf.io.read_file(audio_path)
+        return {
+            'audio_binary': tf.train.Feature(bytes_list=tf.train.BytesList(value=[audio_binary.numpy()])),
+            'path': tf.train.Feature(bytes_list=tf.train.BytesList(value=[audio_path.encode()]))
+        }
+
+    def create_tf_example(audio_path):
+        """Create a complete TF Example from an audio file."""
+        feature_dict = serialize_audio(audio_path)
+        example = tf.train.Example(features=tf.train.Features(feature=feature_dict))
+        return example
+
+    def convert_directory_to_tfrecord(input_dir, output_tfrecord):
+        """Convert all audio files in a directory to a single TFRecord file."""
+        # Find all audio files (adjust extensions as needed)
+        audio_files = []
+        for ext in ['*.wav', '*.mp3', '*.flac', '*.ogg']:
+            audio_files.extend(glob.glob(os.path.join(input_dir, ext)))
+        
+        print(f"Found {len(audio_files)} audio files in {input_dir}")
+        
+        # Create TFRecord file
+        with tf.io.TFRecordWriter(output_tfrecord) as writer:
+            for audio_path in tqdm(audio_files, desc=f"Converting {os.path.basename(input_dir)}"):
+                tf_example = create_tf_example(audio_path)
+                writer.write(tf_example.SerializeToString())
+        
+        print(f"Created TFRecord file: {output_tfrecord} with {len(audio_files)} examples")
+
+    # Main conversion function
+    def convert_dataset_to_tfrecords(base_input_dir, base_output_dir):
+        """Convert an entire dataset organized in subdirectories to TFRecords."""
+        # Create output directory if it doesn't exist
+        os.makedirs(base_output_dir, exist_ok=True)
+        
+        # Get all subdirectories
+        subdirs = [d for d in glob.glob(os.path.join(base_input_dir, '*')) if os.path.isdir(d)]
+        
+        print(f"Found {len(subdirs)} subdirectories to process")
+        
+        # Process each subdirectory
+        for subdir in subdirs:
+            subdir_name = os.path.basename(subdir)
+            output_path = os.path.join(base_output_dir, f"{subdir_name}.tfrecord")
+            convert_directory_to_tfrecord(subdir, output_path)
+
+    # # Example usage
+    # if __name__ == "__main__":
+    #     # Adjust these paths to your specific setup
+    #     input_dataset_dir = "/content/drive/MyDrive/audio_dataset"
+    #     output_tfrecords_dir = "/content/drive/MyDrive/tfrecords"
+        
+    #     convert_dataset_to_tfrecords(input_dataset_dir, output_tfrecords_dir)
+
     
     def split_into_clips(self, audio):
         """Split audio into non-overlapping 1-second clips with light Hann windowing"""
