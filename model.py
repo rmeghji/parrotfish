@@ -29,7 +29,7 @@ class Config:
     # Model settings
     NUM_COEFFS = 16000  # 1 second at 16kHz
     WAVELET_DEPTH = 5
-    BATCH_SIZE = 16 # 16-32
+    BATCH_SIZE = 8 # 16-32
     CHANNELS = 1  # Mono audio
     NUM_LAYERS = 8 # 10-12
     NUM_INIT_FILTERS = 16 ## was 24
@@ -48,7 +48,7 @@ class Config:
     # Mixture generation
     MIN_SOURCES = 2
     MAX_SOURCES = 2 # first curriculum learning
-    NUM_EXAMPLES = BATCH_SIZE * 500
+    NUM_EXAMPLES = BATCH_SIZE * 100
     
     # Wavelet settings
     WAVELET_FAMILY = 'db4'  # Daubechies wavelet with 4 vanishing moments
