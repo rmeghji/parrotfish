@@ -175,7 +175,7 @@ class AudioProcessor:
         example = tf.train.Example(features=tf.train.Features(feature=feature_dict))
         return example
 
-    def convert_dataset_to_tfrecords_in_batches(base_input_dir, base_output_dir, batch_size=50, pause_duration=5):
+    def convert_dataset_to_tfrecords_in_batches(self, base_input_dir, base_output_dir, batch_size=50, pause_duration=5):
         """Convert audio files from GCS to TFRecords in GCS using batches"""
         
         # Ensure output directory exists
