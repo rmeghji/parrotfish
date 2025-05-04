@@ -1469,18 +1469,18 @@ def main(clips_dir):
     
     print("Starting audio source separation pipeline...")
     
-    # Step 1: Process raw audio files into clips if needed
-    if not os.path.exists(clips_dir) or len(os.listdir(clips_dir)) == 0:
-        print(f"Processing raw audio files from {config.DATA_DIR} into clips...")
-        process_audio_files(
-            base_folder=config.DATA_DIR,
-            output_folder=clips_dir,
-            clip_duration_seconds=1.0,
-            window_overlap_ratio=0.1,
-            batch_size=100
-        )
-    else:
-        print(f"Using existing clips in {clips_dir}")
+    # # Step 1: Process raw audio files into clips if needed
+    # if not os.path.exists(clips_dir) or len(os.listdir(clips_dir)) == 0:
+    #     print(f"Processing raw audio files from {config.DATA_DIR} into clips...")
+    #     process_audio_files(
+    #         base_folder=config.DATA_DIR,
+    #         output_folder=clips_dir,
+    #         clip_duration_seconds=1.0,
+    #         window_overlap_ratio=0.1,
+    #         batch_size=100
+    #     )
+    # else:
+    #     print(f"Using existing clips in {clips_dir}")
     
     # Step 2: Create TensorFlow dataset for training
     print("Creating TensorFlow dataset for training...")
