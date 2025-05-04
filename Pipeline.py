@@ -97,7 +97,7 @@ class AudioProcessor:
             return None
 
     #### TFRecord Functions ####
-    def serialize_audio(audio_path):
+    def serialize_audio(self, audio_path):
         """Convert a single audio file to TFRecord format features."""
         audio_binary = tf.io.read_file(audio_path)
         return {
@@ -105,13 +105,13 @@ class AudioProcessor:
             'path': tf.train.Feature(bytes_list=tf.train.BytesList(value=[audio_path.encode()]))
         }
 
-    def create_tf_example(audio_path):
+    def create_tf_example(self, audio_path):
         """Create a complete TF Example from an audio file."""
-        feature_dict = serialize_audio(audio_path)
+        feature_dict = self.serialize_audio(audio_path)
         example = tf.train.Example(features=tf.train.Features(feature=feature_dict))
         return example
 
-    def convert_directory_to_tfrecord(input_dir, output_tfrecord):
+    def convert_directory_to_tfrecord(self, input_dir, output_tfrecord):
         """Convert all audio files in a directory to a single TFRecord file."""
         # Find all audio files (adjust extensions as needed)
         audio_files = []
@@ -123,13 +123,13 @@ class AudioProcessor:
         # Create TFRecord file
         with tf.io.TFRecordWriter(output_tfrecord) as writer:
             for audio_path in tqdm(audio_files, desc=f"Converting {os.path.basename(input_dir)}"):
-                tf_example = create_tf_example(audio_path)
+                tf_example = self.create_tf_example(audio_path)
                 writer.write(tf_example.SerializeToString())
         
         print(f"Created TFRecord file: {output_tfrecord} with {len(audio_files)} examples")
 
     # Main conversion function
-    def convert_dataset_to_tfrecords(base_input_dir, base_output_dir):
+    def convert_dataset_to_tfrecords(self, base_input_dir, base_output_dir):
         """Convert an entire dataset organized in subdirectories to TFRecords."""
         # Create output directory if it doesn't exist
         os.makedirs(base_output_dir, exist_ok=True)
@@ -143,7 +143,7 @@ class AudioProcessor:
         for subdir in subdirs:
             subdir_name = os.path.basename(subdir)
             output_path = os.path.join(base_output_dir, f"{subdir_name}.tfrecord")
-            convert_directory_to_tfrecord(subdir, output_path)
+            self.convert_directory_to_tfrecord(subdir, output_path)
 
     # # Example usage
     # if __name__ == "__main__":
