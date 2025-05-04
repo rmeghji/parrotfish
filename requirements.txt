@@ -2,8 +2,8 @@ moviepy==1.0.3
 numpy>=1.25.0
 scipy>=1.11.4
 tqdm==4.65.0
-tensorflow==2.16.1
+tensorflow==2.18.0
 soundfile==0.12.1
-protobuf==3.20.3
+protobuf>=5.29.1
 librosa==0.10.1
 pywavelets==1.5.0
