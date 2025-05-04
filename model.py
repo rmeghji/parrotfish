@@ -29,12 +29,12 @@ class Config:
     # Model settings
     NUM_COEFFS = 16000  # 1 second at 16kHz
     WAVELET_DEPTH = 5
-    BATCH_SIZE = 8 # 16-32
+    BATCH_SIZE = 16 # 16-32
     CHANNELS = 1  # Mono audio
-    NUM_LAYERS = 8 # 10-12
+    NUM_LAYERS = 10 # 10-12
     NUM_INIT_FILTERS = 16 ## was 24
     FILTER_SIZE = 16 # was 16 should be 16
-    MERGE_FILTER_SIZE = 5 # was 5 should be like 8
+    MERGE_FILTER_SIZE = 8 # was 5 should be like 8
     L1_REG = 1e-6
     L2_REG = 1e-6
     
@@ -48,7 +48,7 @@ class Config:
     # Mixture generation
     MIN_SOURCES = 2
     MAX_SOURCES = 2 # first curriculum learning
-    NUM_EXAMPLES = BATCH_SIZE * 100
+    NUM_EXAMPLES = BATCH_SIZE * 2000
     
     # Wavelet settings
     WAVELET_FAMILY = 'db4'  # Daubechies wavelet with 4 vanishing moments
@@ -275,7 +275,7 @@ class DWTLayer(tf.keras.layers.Layer):
 
 @tf.keras.utils.register_keras_serializable()
 class IDWTLayer(tf.keras.layers.Layer):
-    def __init__(self, wavelet_family='db4',batch_size=8, mode='periodization', name=None, **kwargs):
+    def __init__(self, wavelet_family='db4',batch_size=16, mode='periodization', name=None, **kwargs):
         super().__init__(name=name, **kwargs)
         self.wavelet_family = wavelet_family
         self.mode = mode
@@ -1049,7 +1049,7 @@ def fast_pit_loss(y_true, y_pred):
 
 # Data Generator for TensorFlow
 class AudioMixtureDataGenerator(tf.keras.utils.Sequence):
-    def __init__(self, source_combinations, batch_size=8, max_sources=4, shuffle=True,
+    def __init__(self, source_combinations, batch_size=16, max_sources=4, shuffle=True,
                  workers=4, use_multiprocessing=True):
         self.source_combinations = source_combinations
         self.batch_size = batch_size
@@ -1707,4 +1707,5 @@ def test_separation(model, audio_file, output_dir="separated"):
 
 if __name__ == "__main__":
     # Run the main pipeline
-    model, history = main()
+    clips_dir = "data/clips"
+    model, history = main(clips_dir)
