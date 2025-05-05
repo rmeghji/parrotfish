@@ -29,7 +29,7 @@ class Config:
     # Model settings
     NUM_COEFFS = 16000  # 1 second at 16kHz
     WAVELET_DEPTH = 5
-    BATCH_SIZE = 32 # 16-32
+    BATCH_SIZE = 16 # 16-32
     CHANNELS = 1  # Mono audio
     NUM_LAYERS = 11 # 10-12
     NUM_INIT_FILTERS = 32 ## was 24
@@ -1551,8 +1551,8 @@ def main(clips_dir=None, tfrecords_dir=None, save_directory=None, num_speakers=c
     train_steps = int(train_size / config.BATCH_SIZE)
     val_steps = int(val_size / config.BATCH_SIZE)
     
-    train_dataset = dataset.take(train_size)
-    val_dataset = dataset.skip(train_size).take(val_size)
+    train_dataset = dataset.take(train_size).repeat()
+    val_dataset = dataset.skip(train_size).take(val_size).repeat()
     
     # print(tf.shape(train_dataset))
     
