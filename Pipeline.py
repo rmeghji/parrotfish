@@ -184,7 +184,7 @@ class AudioProcessor:
             print(f"Error processing {audio_path}: {e}")
             return audio_path, None
 
-    def _process_files_parallel(self, audio_files, desc="Processing files"):
+    def _process_files_parallel(self, audio_files, desc="Processing files", position=2):
         """Process audio files in parallel using a thread pool"""
         # Use slightly fewer threads than CPUs to avoid overwhelming the system
         max_workers = max(1, mp.cpu_count() - 1)
@@ -198,7 +198,7 @@ class AudioProcessor:
             }
             
             # Process results as they complete
-            for future in tqdm(as_completed(future_to_path), total=len(audio_files), desc=desc, leave=False):
+            for future in tqdm(as_completed(future_to_path), total=len(audio_files), desc=desc, leave=False, position=position):
                 results.append(future.result())
         
         return results
@@ -237,7 +237,7 @@ class AudioProcessor:
             print(f"\nProcessing batch {batch_idx//batch_size + 1}/{(len(subdirs_to_process)-1)//batch_size + 1}")
             
             # Process each subdirectory in this batch
-            for subdir in tqdm(batch_subdirs, desc="Processing subdirectories", leave=False):
+            for subdir in tqdm(batch_subdirs, desc="Processing subdirectories", leave=False, position=0):
                 subdir_name = os.path.basename(subdir)
                 output_path = f"{base_output_dir}/{subdir_name}.tfrecord"
                 
@@ -260,10 +260,10 @@ class AudioProcessor:
                 
                 with tf.io.TFRecordWriter(output_path, options=options) as writer:
                     # Process files in parallel
-                    results = self._process_files_parallel(audio_files, desc=f"Processing {subdir_name}")
+                    results = self._process_files_parallel(audio_files, desc=f"Processing {subdir_name}", position=2)
                     
                     # Write results to TFRecord
-                    for _, serialized_example in tqdm(results, desc=f"Writing {subdir_name}", leave=False):
+                    for _, serialized_example in tqdm(results, desc=f"Writing {subdir_name}", leave=False, position=1):
                         if serialized_example is not None:
                             writer.write(serialized_example)
             
