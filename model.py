@@ -423,16 +423,16 @@ class DownsamplingLayer(tf.keras.layers.Layer):
     def build(self, input_shape):
         # Input projection if needed for residual connection
         self.input_channels = input_shape[-1]
-        if self.input_channels != self.num_filters:
-            self.input_proj = tf.keras.layers.Conv1D(
-                self.num_filters,
-                1,
-                padding='same',
-                kernel_regularizer=tf.keras.regularizers.l1_l2(l1=self.l1_reg, l2=self.l2_reg),
-                name=f'input_proj_{self.name}'
-            )
-        else:
-            self.input_proj = None
+        # if self.input_channels != self.num_filters:
+        #     self.input_proj = tf.keras.layers.Conv1D(
+        #         self.num_filters,
+        #         1,
+        #         padding='same',
+        #         kernel_regularizer=tf.keras.regularizers.l1_l2(l1=self.l1_reg, l2=self.l2_reg),
+        #         name=f'input_proj_{self.name}'
+        #     )
+        # else:
+        self.input_proj = None
             
         # Main convolution
         self.conv = tf.keras.layers.Conv1D(
@@ -461,7 +461,7 @@ class DownsamplingLayer(tf.keras.layers.Layer):
         x = gelu(x)
         
         # Add residual
-        return x + residual
+        return x 
     
     def get_config(self):
         config = super().get_config()
@@ -486,16 +486,16 @@ class UpsamplingLayer(tf.keras.layers.Layer):
     def build(self, input_shape):
         # Input projection for residual
         self.input_channels = input_shape[-1]
-        if self.input_channels != self.num_filters:
-            self.input_proj = tf.keras.layers.Conv1D(
-                self.num_filters,
-                1,
-                padding='same',
-                kernel_regularizer=tf.keras.regularizers.l1_l2(l1=self.l1_reg, l2=self.l2_reg),
-                name=f'input_proj_{self.name}'
-            )
-        else:
-            self.input_proj = None
+        # if self.input_channels != self.num_filters:
+        #     self.input_proj = tf.keras.layers.Conv1D(
+        #         self.num_filters,
+        #         1,
+        #         padding='same',
+        #         kernel_regularizer=tf.keras.regularizers.l1_l2(l1=self.l1_reg, l2=self.l2_reg),
+        #         name=f'input_proj_{self.name}'
+        #     )
+        # else:
+        self.input_proj = None
         
         # Convolutional layers for separate processing of approximation and detail coefficients
         half_channels = self.input_channels // 2
@@ -585,7 +585,7 @@ class UpsamplingLayer(tf.keras.layers.Layer):
         output = self.output_norm(output)
         output = gelu(output)
         
-        return output + residual
+        return output 
     
     def get_config(self):
         config = super().get_config()
