@@ -17,7 +17,6 @@ from Pipeline import (
     process_audio_files
 )
 
-
 # Configuration
 class Config:
     # Data settings
@@ -964,6 +963,7 @@ class WaveletUNet(tf.keras.Model):
 
 
 # Permutation Invariant Training Loss
+@tf.keras.utils.register_keras_serializable()
 def pit_loss(y_true, y_pred):
     """
     Simplified Permutation Invariant Training loss for 2 sources only.
@@ -1267,102 +1267,120 @@ def train_model():
 
 
 # Load model function with multiple fallbacks
-def load_model_with_fallbacks(model_dir):
+def load_model_with_fallbacks(model_dir, filename):
     """Load the model with multiple fallback options."""
     print(f"Attempting to load model from {model_dir}")
+
+    custom_objects = {
+        'WaveletUNet': WaveletUNet,
+        'DWTLayer': DWTLayer,
+        'IDWTLayer': IDWTLayer,
+        'DownsamplingLayer': DownsamplingLayer,
+        'UpsamplingLayer': UpsamplingLayer,
+        'GatedSkipConnection': GatedSkipConnection,
+        'pit_loss': pit_loss,
+        'gelu': gelu
+    }
+
+    loaded_model = tf.keras.models.load_model(os.path.join(model_dir, f"{filename}.keras"), custom_objects=custom_objects)
+    loaded_model(tf.random.normal(shape=(config.BATCH_SIZE, config.SEGMENT_LENGTH, 1))) # dummy input to build model
+    loaded_model.load_weights(os.path.join(model_dir, f"{filename}_weightsonly.weights.h5"))
+
+    return loaded_model
     
-    # Try loading SavedModel format
-    saved_model_path = os.path.join(model_dir, 'improved_wavelet_unet_savedmodel')
-    if os.path.exists(saved_model_path):
-        try:
-            print("Attempting to load SavedModel format...")
-            custom_objects = {
-                'WaveletUNet': WaveletUNet,
-                'DWTLayer': DWTLayer,
-                'IDWTLayer': IDWTLayer,
-                'DownsamplingLayer': DownsamplingLayer,
-                'UpsamplingLayer': UpsamplingLayer,
-                'GatedSkipConnection': GatedSkipConnection,
-                'pit_loss': pit_loss,
-                'fast_pit_loss': fast_pit_loss,
-                'gelu': gelu
-            }
+    # # Try loading SavedModel format
+    # saved_model_path = os.path.join(model_dir, f"{filename}.keras")
+    # if os.path.exists(saved_model_path):
+    #     try:
+    #         print("Attempting to load SavedModel format...")
+    #         custom_objects = {
+    #             'WaveletUNet': WaveletUNet,
+    #             'DWTLayer': DWTLayer,
+    #             'IDWTLayer': IDWTLayer,
+    #             'DownsamplingLayer': DownsamplingLayer,
+    #             'UpsamplingLayer': UpsamplingLayer,
+    #             'GatedSkipConnection': GatedSkipConnection,
+    #             'pit_loss': pit_loss,
+    #             'fast_pit_loss': fast_pit_loss,
+    #             'gelu': gelu
+    #         }
             
-            model = tf.keras.models.load_model(
-                saved_model_path,
-                custom_objects=custom_objects
-            )
-            print("Successfully loaded model from SavedModel format")
-            return model
-        except Exception as e:
-            print(f"Error loading SavedModel: {e}")
+    #         model = tf.keras.models.load_model(
+    #             saved_model_path,
+    #             custom_objects=custom_objects
+    #         )
+    #         print("Successfully loaded model from SavedModel format")
+    #         return model
+    #     except Exception as e:
+    #         print(f"Error loading SavedModel: {e}")
     
     # Try loading H5 format
-    h5_path = os.path.join(model_dir, 'improved_wavelet_unet_final.h5')
-    if os.path.exists(h5_path):
-        try:
-            print("Attempting to load H5 format...")
-            custom_objects = {
-                'WaveletUNet': WaveletUNet,
-                'DWTLayer': DWTLayer,
-                'IDWTLayer': IDWTLayer,
-                'DownsamplingLayer': DownsamplingLayer,
-                'UpsamplingLayer': UpsamplingLayer,
-                'GatedSkipConnection': GatedSkipConnection,
-                'fast_pit_loss': fast_pit_loss,
-                'gelu': gelu
-            }
+    # h5_path = os.path.join(model_dir, f"{filename}_weightsonly.weights.h5")
+    # if os.path.exists(h5_path):
+    #     try:
+    #         print("Attempting to load H5 format...")
+    #         custom_objects = {
+    #             'WaveletUNet': WaveletUNet,
+    #             'DWTLayer': DWTLayer,
+    #             'IDWTLayer': IDWTLayer,
+    #             'DownsamplingLayer': DownsamplingLayer,
+    #             'UpsamplingLayer': UpsamplingLayer,
+    #             'GatedSkipConnection': GatedSkipConnection,
+    #             'fast_pit_loss': fast_pit_loss,
+    #             'gelu': gelu
+    #         }
             
-            model = tf.keras.models.load_model(
-                h5_path,
-                custom_objects=custom_objects
-            )
-            print("Successfully loaded model from H5 format")
-            return model
-        except Exception as e:
-            print(f"Error loading H5 model: {e}")
+    #         model = tf.keras.models.load_model(
+    #             h5_path,
+    #             custom_objects=custom_objects
+    #         )
+    #         print("Successfully loaded model from H5 format")
+    #         return model
+    #     except Exception as e:
+    #         print(f"Error loading H5 model: {e}")
     
     # Try loading from architecture + weights
-    arch_path = os.path.join(model_dir, 'model_architecture.json')
-    weights_path = os.path.join(model_dir, 'model_weights.h5')
+    # arch_path = os.path.join(model_dir, 'model_architecture.json')
+    # weights_path = os.path.join(model_dir, f"{filename}_weightsonly.weights.h5")
     
-    if os.path.exists(arch_path) and os.path.exists(weights_path):
-        try:
-            print("Attempting to load from architecture + weights...")
-            with open(arch_path, 'r') as json_file:
-                model_json = json_file.read()
+    # if os.path.exists(arch_path) and os.path.exists(weights_path):
+    #     try:
+    #         print("Attempting to load from architecture + weights...")
+    #         with open(arch_path, 'r') as json_file:
+    #             model_json = json_file.read()
             
-            custom_objects = {
-                'WaveletUNet': WaveletUNet,
-                'DWTLayer': DWTLayer,
-                'IDWTLayer': IDWTLayer,
-                'DownsamplingLayer': DownsamplingLayer,
-                'UpsamplingLayer': UpsamplingLayer,
-                'GatedSkipConnection': GatedSkipConnection
-            }
+    #         custom_objects = {
+    #             'WaveletUNet': WaveletUNet,
+    #             'DWTLayer': DWTLayer,
+    #             'IDWTLayer': IDWTLayer,
+    #             'DownsamplingLayer': DownsamplingLayer,
+    #             'UpsamplingLayer': UpsamplingLayer,
+    #             'GatedSkipConnection': GatedSkipConnection,
+    #             'pit_loss': pit_loss
+    #         }
             
-            model = tf.keras.models.model_from_json(
-                model_json,
-                custom_objects=custom_objects
-            )
+    #         model = tf.keras.models.model_from_json(
+    #             model_json,
+    #             custom_objects=custom_objects
+    #         )
             
-            # Load weights
-            model.load_weights(weights_path)
+    #         # Load weights
+    #         model.load_weights(weights_path)
             
-            # Recompile the model
-            model.compile(
-                optimizer=tf.keras.optimizers.Adam(learning_rate=config.LEARNING_RATE),
-                loss=pit_loss,
-                metrics=['mse']
-            )
+    #         # Recompile the model
+    #         model.compile(
+    #             optimizer=tf.keras.optimizers.Adam(learning_rate=config.LEARNING_RATE),
+    #             loss=pit_loss,
+    #             metrics=['mse']
+    #         )
             
-            print("Successfully loaded model from architecture + weights")
-            return model
-        except Exception as e:
-            print(f"Error loading from architecture + weights: {e}")
+    #         print("Successfully loaded model from architecture + weights")
+    #         return model
+    #     except Exception as e:
+    #         print(f"Error loading from architecture + weights: {e}")
     
-    print("Failed to load model with any method")
-    return None
+    # print("Failed to load model with any method")
+    # return None
 
 
 # Evaluate the model
@@ -1707,6 +1725,7 @@ def test_separation(model, audio_file, output_dir="separated"):
     if len(audio) < chunk_size:
         audio = np.pad(audio, (0, chunk_size - len(audio)))
         num_chunks = 1
+        print(f"Audio file is shorter than 1 second, padding with zeros")
     
     # Initialize arrays for separated sources
     separated_sources = []
@@ -1740,5 +1759,9 @@ def test_separation(model, audio_file, output_dir="separated"):
 
 if __name__ == "__main__":
     # Run the main pipeline
-    clips_dir = "data/clips"
-    model, history = main(clips_dir)
+    # clips_dir = "data/clips"
+    # model, history = main(clips_dir)
+
+
+    model = load_model_with_fallbacks("models", "wavelet_unet_46_0.0008")
+    test_separation(model, "data/test_mix.wav", "data/output")
