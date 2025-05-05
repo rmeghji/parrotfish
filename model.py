@@ -1463,7 +1463,7 @@ def evaluate_model(model, test_generator, num_examples=5):
     
 #     print(" Wavelet U-Net pipeline completed successfully!")
 
-def main(clips_dir, tfrecords_dir, num_speakers=config.MAX_SOURCES):
+def main(clips_dir=None, tfrecords_dir=None, num_speakers=config.MAX_SOURCES):
     """Main function to run the audio source separation pipeline"""
     config = Config()
     
@@ -1492,7 +1492,7 @@ def main(clips_dir, tfrecords_dir, num_speakers=config.MAX_SOURCES):
             num_speakers=num_speakers,
             batch_size=config.BATCH_SIZE
         )
-    elif tfrecords_dir:
+    elif tfrecords_dir and not clips_dir:
         print("Creating TensorFlow dataset for training from TFRecords...")
         dataset = create_tf_dataset_from_tfrecords(
             tfrecords_dir=tfrecords_dir,
