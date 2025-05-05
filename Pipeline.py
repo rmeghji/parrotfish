@@ -161,6 +161,123 @@ class AudioProcessor:
             output_path = subfolder / clip_name
             sf.write(str(output_path), clip, 16000, format='WAV')
 
+    @tf.function(jit_compile=True)
+    def _read_with_retry(self, path, max_retries=3):
+        """Read a file from GCS with retry logic"""
+        for attempt in range(max_retries):
+            try:
+                return tf.io.read_file(path)
+            except tf.errors.OpError as e:
+                if attempt == max_retries - 1:
+                    raise
+                time.sleep(1 * (attempt + 1))
+
+    def _process_audio_file(self, audio_path):
+        """Process a single audio file into a TF Example"""
+        try:
+            audio_binary = self._read_with_retry(audio_path)
+            feature = {
+                'audio_binary': tf.train.Feature(bytes_list=tf.train.BytesList(value=[audio_binary.numpy()])),
+                'path': tf.train.Feature(bytes_list=tf.train.BytesList(value=[audio_path.encode()]))
+            }
+            return tf.train.Example(features=tf.train.Features(feature=feature))
+        except Exception as e:
+            print(f"Error processing {audio_path}: {e}")
+            return None
+
+    def convert_dataset_to_tfrecords_in_batches(self, base_input_dir, base_output_dir, batch_size=50, pause_duration=5, force_recompress=True):
+        """Convert audio files from GCS to TFRecords in GCS using batches
+        
+        Args:
+            base_input_dir: Base input directory in GCS containing subdirectories of audio files
+            base_output_dir: Base output directory in GCS to write TFRecord files
+            batch_size: Number of subdirectories to process in each batch
+            pause_duration: Seconds to pause between batches
+            force_recompress: If True, reprocess existing TFRecords to ensure they're compressed
+        """
+        
+        # Ensure output directory exists
+        if not tf.io.gfile.exists(base_output_dir):
+            tf.io.gfile.makedirs(base_output_dir)
+        
+        # List all subdirectories in GCS
+        all_subdirs = tf.io.gfile.glob(f"{base_input_dir}/*")
+        all_subdirs = [d for d in all_subdirs if tf.io.gfile.isdir(d)]
+        
+        print(f"Found {len(all_subdirs)} subdirectories to process")
+        
+        if force_recompress:
+            # Process all subdirectories to ensure compression
+            subdirs_to_process = all_subdirs
+            print(f"Will process all {len(subdirs_to_process)} subdirectories to ensure compression")
+        else:
+            # Check which subdirectories have already been processed
+            existing_tfrecords = tf.io.gfile.glob(f"{base_output_dir}/*.tfrecord")
+            processed_subdirs = {os.path.basename(p).replace('.tfrecord', '') for p in existing_tfrecords}
+            
+            # Filter out already processed subdirectories
+            subdirs_to_process = [
+                subdir for subdir in all_subdirs 
+                if os.path.basename(subdir) not in processed_subdirs
+            ]
+            print(f"Skipping {len(all_subdirs) - len(subdirs_to_process)} already processed subdirectories")
+            print(f"Will process {len(subdirs_to_process)} remaining subdirectories")
+        
+        # Process in batches
+        for batch_idx in range(0, len(subdirs_to_process), batch_size):
+            batch_start_time = time.time()
+            
+            batch_subdirs = subdirs_to_process[batch_idx:batch_idx + batch_size]
+            print(f"\nProcessing batch {batch_idx//batch_size + 1}/{(len(subdirs_to_process)-1)//batch_size + 1}")
+            
+            # Process each subdirectory in this batch
+            for subdir in tqdm(batch_subdirs, desc="Processing subdirectories"):
+                subdir_name = os.path.basename(subdir)
+                output_path = f"{base_output_dir}/{subdir_name}.tfrecord"
+                
+                # List audio files in this subdirectory
+                audio_files = []
+                for ext in ['.wav', '.mp3', '.flac', '.ogg']:
+                    audio_files.extend(tf.io.gfile.glob(f"{subdir}/*{ext}"))
+                
+                if not audio_files:
+                    print(f"  - {subdir_name}: No audio files found")
+                    continue
+                
+                print(f"  - {subdir_name}: Found {len(audio_files)} audio files")
+                
+                # Create TFRecord directly in GCS with compression
+                options = tf.io.TFRecordOptions(
+                    compression_type='GZIP',
+                    compression_level=6
+                )
+                
+                with tf.io.TFRecordWriter(output_path, options=options) as writer:
+                    # Process files in parallel using tf.data
+                    dataset = tf.data.Dataset.from_tensor_slices(audio_files)
+                    dataset = dataset.map(
+                        self._process_audio_file,
+                        num_parallel_calls=tf.data.AUTOTUNE
+                    )
+                    dataset = dataset.prefetch(tf.data.AUTOTUNE)
+                    
+                    for example in tqdm(dataset, total=len(audio_files), desc=f"Writing {subdir_name}"):
+                        if example is not None:
+                            writer.write(example.SerializeToString())
+            
+            # Memory cleanup after each batch
+            gc.collect()
+            tf.keras.backend.clear_session()
+            
+            # Calculate and show batch stats
+            batch_duration = time.time() - batch_start_time
+            print(f"Batch processed in {batch_duration:.2f} seconds")
+            
+            # Add short pause between batches
+            if batch_idx + batch_size < len(subdirs_to_process):
+                print(f"Waiting {pause_duration} seconds before next batch...")
+                time.sleep(pause_duration)
+
     def serialize_audio(self, audio_path):
         """Convert a single audio file to TFRecord format features."""
         audio_binary = tf.io.read_file(audio_path)
@@ -174,81 +291,6 @@ class AudioProcessor:
         feature_dict = self.serialize_audio(audio_path)
         example = tf.train.Example(features=tf.train.Features(feature=feature_dict))
         return example
-
-    def convert_dataset_to_tfrecords_in_batches(self, base_input_dir, base_output_dir, batch_size=50, pause_duration=5):
-        """Convert audio files from GCS to TFRecords in GCS using batches"""
-        
-        # Ensure output directory exists
-        if not tf.io.gfile.exists(base_output_dir):
-            tf.io.gfile.makedirs(base_output_dir)
-        
-        # List all subdirectories in GCS
-        all_subdirs = tf.io.gfile.glob(f"{base_input_dir}/*")
-        all_subdirs = [d for d in all_subdirs if tf.io.gfile.isdir(d)]
-        
-        print(f"Found {len(all_subdirs)} subdirectories to process")
-        
-        # Check which subdirectories have already been processed
-        existing_tfrecords = tf.io.gfile.glob(f"{base_output_dir}/*.tfrecord")
-        processed_subdirs = set()
-        
-        for tfrecord_path in existing_tfrecords:
-            subdir_name = os.path.basename(tfrecord_path).replace('.tfrecord', '')
-            processed_subdirs.add(subdir_name)
-        
-        # Filter out already processed subdirectories
-        subdirs_to_process = []
-        for subdir in all_subdirs:
-            subdir_name = os.path.basename(subdir)
-            if subdir_name not in processed_subdirs:
-                subdirs_to_process.append(subdir)
-        
-        print(f"Skipping {len(all_subdirs) - len(subdirs_to_process)} already processed subdirectories")
-        print(f"Will process {len(subdirs_to_process)} remaining subdirectories")
-        
-        # Process in batches
-        for batch_idx in range(0, len(subdirs_to_process), batch_size):
-            batch_start_time = time.time()
-            
-            batch_subdirs = subdirs_to_process[batch_idx:batch_idx + batch_size]
-            print(f"\nProcessing batch {batch_idx//batch_size + 1}/{(len(subdirs_to_process)-1)//batch_size + 1} with {len(batch_subdirs)} subdirectories")
-            
-            # Process each subdirectory in this batch
-            for subdir in batch_subdirs:
-                subdir_name = os.path.basename(subdir)
-                output_path = f"{base_output_dir}/{subdir_name}.tfrecord"
-                
-                # List audio files in this subdirectory
-                audio_files = []
-                for ext in ['.wav', '.mp3', '.flac', '.ogg']:
-                    audio_files.extend(tf.io.gfile.glob(f"{subdir}/*{ext}"))
-                
-                print(f"  - {subdir_name}: Found {len(audio_files)} audio files")
-                
-                # Create TFRecord directly in GCS
-                with tf.io.TFRecordWriter(output_path) as writer:
-                    for audio_path in audio_files:
-                        # Read file directly from GCS
-                        audio_binary = tf.io.read_file(audio_path)
-                        
-                        # Create example
-                        feature = {
-                            'audio_binary': tf.train.Feature(bytes_list=tf.train.BytesList(value=[audio_binary.numpy()])),
-                            'path': tf.train.Feature(bytes_list=tf.train.BytesList(value=[audio_path.encode()]))
-                        }
-                        example = tf.train.Example(features=tf.train.Features(feature=feature))
-                        
-                        # Write to GCS
-                        writer.write(example.SerializeToString())
-            
-            # Calculate batch processing time
-            batch_duration = time.time() - batch_start_time
-            print(f"Batch processed in {batch_duration:.2f} seconds")
-            
-            # Add short pause between batches
-            if batch_idx + batch_size < len(subdirs_to_process):
-                print(f"Waiting {pause_duration} seconds before starting next batch...")
-                time.sleep(pause_duration)
 
 def process_audio_files(base_folder, output_folder, clip_duration_seconds=1.0, window_overlap_ratio=0.1, batch_size=100):
     """Process all audio files in a folder and save clips to output folder with subfolder distribution"""
