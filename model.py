@@ -1463,7 +1463,7 @@ def evaluate_model(model, test_generator, num_examples=5):
     
 #     print(" Wavelet U-Net pipeline completed successfully!")
 
-def main(clips_dir):
+def main(clips_dir, tfrecords_dir, num_speakers=config.MAX_SOURCES):
     """Main function to run the audio source separation pipeline"""
     config = Config()
     
@@ -1483,13 +1483,22 @@ def main(clips_dir):
     #     print(f"Using existing clips in {clips_dir}")
     
     # Step 2: Create TensorFlow dataset for training
-    print("Creating TensorFlow dataset for training...")
-    dataset = create_tf_dataset(
-        base_dir=config.DATA_DIR,
-        clips_dir=clips_dir,
-        num_speakers=config.MAX_SOURCES,
-        batch_size=config.BATCH_SIZE
-    )
+
+    if clips_dir and not tfrecords_dir:
+        print("Creating TensorFlow dataset for training from WAV files...")
+        dataset = create_tf_dataset(
+            base_dir=config.DATA_DIR,
+            clips_dir=clips_dir,
+            num_speakers=num_speakers,
+            batch_size=config.BATCH_SIZE
+        )
+    elif tfrecords_dir:
+        print("Creating TensorFlow dataset for training from TFRecords...")
+        dataset = create_tf_dataset_from_tfrecords(
+            tfrecords_dir=tfrecords_dir,
+            num_speakers=num_speakers,
+            batch_size=config.BATCH_SIZE
+        )
     
     
     
@@ -1521,7 +1530,7 @@ def main(clips_dir):
         merge_filter_size=config.MERGE_FILTER_SIZE,
         l1_reg=config.L1_REG,
         l2_reg=config.L2_REG,
-        max_sources=config.MAX_SOURCES,
+        max_sources=num_speakers,
         wavelet_family=config.WAVELET_FAMILY
     )
     
