@@ -186,32 +186,21 @@ class AudioProcessor:
             print(f"Error processing {audio_path}: {e}")
             return audio_path, None
 
-    def _process_files_parallel(self, audio_files, desc="Processing files", position=0, tqdm_manager=None):
+    def _process_files_parallel(self, audio_files, desc="Processing files", disable_tqdm=False):
         """Process audio files in parallel using a thread pool"""
         # Use slightly fewer threads than CPUs to avoid overwhelming the system
         max_workers = max(1, mp.cpu_count() - 1)
         results = []
         
-        # Create a progress bar with the manager
-        pbar = tqdm_manager.tqdm(total=len(audio_files), desc=desc, position=position) if tqdm_manager else tqdm(total=len(audio_files), desc=desc, position=position)
-        
-        # Process files in chunks to avoid creating too many threads at once
-        chunk_size = 100  # Adjust based on your needs
-        
-        for i in range(0, len(audio_files), chunk_size):
-            chunk = audio_files[i:i+chunk_size]
+        # Use a single progress bar for the overall process
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            futures = [executor.submit(self._process_audio_file, path) for path in audio_files]
             
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                # Submit tasks for this chunk
-                futures = [executor.submit(self._process_audio_file, path) for path in chunk]
-                
-                # Process results as they complete
-                for future in as_completed(futures):
-                    results.append(future.result())
-                    # Update the progress bar
-                    pbar.update(1)
+            # Process results as they complete with a single progress bar
+            for future in tqdm(as_completed(futures), total=len(futures), desc=desc, disable=disable_tqdm):
+                results.append(future.result())
         
-        pbar.close()
         return results
 
     def convert_dataset_to_tfrecords_in_batches(self, base_input_dir, base_output_dir, batch_size=50, pause_duration=5, force_recompress=True):
@@ -240,9 +229,6 @@ class AudioProcessor:
             print(f"Skipping {len(all_subdirs) - len(subdirs_to_process)} already processed subdirectories")
             print(f"Will process {len(subdirs_to_process)} remaining subdirectories")
         
-        # Create a tqdm manager for nested progress bars
-        tqdm_manager = tqdm.tqdm
-        
         # Process in batches
         for batch_idx in range(0, len(subdirs_to_process), batch_size):
             batch_start_time = time.time()
@@ -251,8 +237,7 @@ class AudioProcessor:
             print(f"\nProcessing batch {batch_idx//batch_size + 1}/{(len(subdirs_to_process)-1)//batch_size + 1}")
             
             # Process each subdirectory in this batch
-            batch_pbar = tqdm(batch_subdirs, desc="Processing subdirectories", position=0, leave=True)
-            for subdir in batch_pbar:
+            for subdir in tqdm(batch_subdirs, desc="Processing subdirectories"):
                 subdir_name = os.path.basename(subdir)
                 output_path = f"{base_output_dir}/{subdir_name}.tfrecord"
                 
@@ -262,10 +247,10 @@ class AudioProcessor:
                     audio_files.extend(tf.io.gfile.glob(f"{subdir}/*{ext}"))
                 
                 if not audio_files:
-                    batch_pbar.write(f"  - {subdir_name}: No audio files found")
+                    print(f"  - {subdir_name}: No audio files found")
                     continue
                 
-                batch_pbar.write(f"  - {subdir_name}: Found {len(audio_files)} audio files")
+                print(f"  - {subdir_name}: Found {len(audio_files)} audio files")
                 
                 # Create TFRecord directly in GCS with compression
                 options = tf.io.TFRecordOptions(
@@ -274,20 +259,17 @@ class AudioProcessor:
                 )
                 
                 with tf.io.TFRecordWriter(output_path, options=options) as writer:
-                    # Process files in parallel
+                    # Process files in parallel with a progress bar
+                    print(f"Processing {len(audio_files)} files for {subdir_name}...")
                     results = self._process_files_parallel(
                         audio_files, 
-                        desc=f"Processing {subdir_name}", 
-                        position=1,
-                        tqdm_manager=tqdm_manager
+                        desc=f"Processing {subdir_name}"
                     )
                     
-                    # Write results to TFRecord
-                    write_pbar = tqdm(results, desc=f"Writing {subdir_name}", position=1, leave=False)
-                    for _, serialized_example in write_pbar:
+                    # Write results to TFRecord with a progress bar
+                    for _, serialized_example in tqdm(results, desc=f"Writing {subdir_name}"):
                         if serialized_example is not None:
                             writer.write(serialized_example)
-                    write_pbar.close()
             
             # Memory cleanup after each batch
             gc.collect()
@@ -301,6 +283,7 @@ class AudioProcessor:
             if batch_idx + batch_size < len(subdirs_to_process):
                 print(f"Waiting {pause_duration} seconds before next batch...")
                 time.sleep(pause_duration)
+
 
 
 
