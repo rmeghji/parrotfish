@@ -570,27 +570,28 @@ def create_tf_dataset_from_tfrecords(tfrecords_dir, num_speakers, batch_size=32,
         samples_per_clip = tf.shape(waveforms[0])[0]
         
         # Randomly select and mix waveforms
-        mixed_audio = tf.zeros((samples_per_clip, 1), dtype=tf.float32)
-        separated_audio = tf.zeros((num_speakers, samples_per_clip, 1), dtype=tf.float32)
+        mixed_audio = tf.zeros((batch_size, samples_per_clip, 1), dtype=tf.float32)
+        separated_audio = tf.zeros((batch_size, num_speakers, samples_per_clip, 1), dtype=tf.float32)
         
-        # Randomly assign mixing weights
-        weights = tf.random.uniform((num_speakers,), minval=0.5, maxval=1.5)
-        weights = weights / tf.reduce_sum(weights)  # Normalize weights
+        # Randomly assign mixing weights for each item in the batch
+        weights = tf.random.uniform((batch_size, num_speakers), minval=0.5, maxval=1.5)
+        weights = weights / tf.reduce_sum(weights, axis=1, keepdims=True)  # Normalize weights per batch item
         
         for i in range(num_speakers):
-            # Randomly select a waveform
-            idx = tf.random.uniform((), 0, batch_size, dtype=tf.int32)
-            waveform = waveforms[idx]
+            # Randomly select waveforms for each item in the batch
+            indices = tf.random.uniform((batch_size,), 0, batch_size, dtype=tf.int32)
+            selected_waveforms = tf.gather(waveforms, indices)
             
-            # Apply mixing weight
-            weighted_waveform = waveform * weights[i]
+            # Apply mixing weights (broadcasting across samples)
+            batch_weights = tf.reshape(weights[:, i], (batch_size, 1, 1))  # Shape: (batch_size, 1, 1)
+            weighted_waveforms = selected_waveforms * batch_weights  # Broadcasting
             
-            # Add to mixed audio and store separated component
-            mixed_audio += weighted_waveform
+            # Add to mixed audio and store separated components
+            mixed_audio += weighted_waveforms
             separated_audio = tf.tensor_scatter_nd_update(
                 separated_audio,
-                [[i]], 
-                [weighted_waveform]
+                tf.stack([tf.range(batch_size), tf.fill((batch_size,), i)], axis=1),
+                weighted_waveforms
             )
         
         return mixed_audio, separated_audio
