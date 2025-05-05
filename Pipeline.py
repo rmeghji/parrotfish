@@ -12,6 +12,8 @@ import pywt
 import glob
 import time
 import gc
+import multiprocessing as mp
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class Waveform:
     """Class to store waveform data with associated metadata"""
@@ -161,40 +163,48 @@ class AudioProcessor:
             output_path = subfolder / clip_name
             sf.write(str(output_path), clip, 16000, format='WAV')
 
-    @tf.function(jit_compile=True)
-    def _read_with_retry(self, path, max_retries=3):
-        """Read a file from GCS with retry logic"""
-        for attempt in range(max_retries):
-            try:
-                return tf.io.read_file(path)
-            except tf.errors.OpError as e:
-                if attempt == max_retries - 1:
-                    raise
-                time.sleep(1 * (attempt + 1))
-
     def _process_audio_file(self, audio_path):
-        """Process a single audio file into a TF Example"""
+        """Process a single audio file into a TF Example
+        
+        Args:
+            audio_path: Path to audio file in GCS
+            
+        Returns:
+            tuple: (audio_path, serialized_example) or (audio_path, None) if error
+        """
         try:
-            audio_binary = self._read_with_retry(audio_path)
+            audio_binary = tf.io.read_file(audio_path)
             feature = {
                 'audio_binary': tf.train.Feature(bytes_list=tf.train.BytesList(value=[audio_binary.numpy()])),
                 'path': tf.train.Feature(bytes_list=tf.train.BytesList(value=[audio_path.encode()]))
             }
-            return tf.train.Example(features=tf.train.Features(feature=feature))
+            example = tf.train.Example(features=tf.train.Features(feature=feature))
+            return audio_path, example.SerializeToString()
         except Exception as e:
             print(f"Error processing {audio_path}: {e}")
-            return None
+            return audio_path, None
+
+    def _process_files_parallel(self, audio_files, desc="Processing files"):
+        """Process audio files in parallel using a thread pool"""
+        # Use slightly fewer threads than CPUs to avoid overwhelming the system
+        max_workers = max(1, mp.cpu_count() - 1)
+        results = []
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_path = {
+                executor.submit(self._process_audio_file, path): path 
+                for path in audio_files
+            }
+            
+            # Process results as they complete
+            for future in tqdm(as_completed(future_to_path), total=len(audio_files), desc=desc):
+                results.append(future.result())
+        
+        return results
 
     def convert_dataset_to_tfrecords_in_batches(self, base_input_dir, base_output_dir, batch_size=50, pause_duration=5, force_recompress=True):
-        """Convert audio files from GCS to TFRecords in GCS using batches
-        
-        Args:
-            base_input_dir: Base input directory in GCS containing subdirectories of audio files
-            base_output_dir: Base output directory in GCS to write TFRecord files
-            batch_size: Number of subdirectories to process in each batch
-            pause_duration: Seconds to pause between batches
-            force_recompress: If True, reprocess existing TFRecords to ensure they're compressed
-        """
+        """Convert audio files from GCS to TFRecords in GCS using batches"""
         
         # Ensure output directory exists
         if not tf.io.gfile.exists(base_output_dir):
@@ -207,15 +217,11 @@ class AudioProcessor:
         print(f"Found {len(all_subdirs)} subdirectories to process")
         
         if force_recompress:
-            # Process all subdirectories to ensure compression
             subdirs_to_process = all_subdirs
             print(f"Will process all {len(subdirs_to_process)} subdirectories to ensure compression")
         else:
-            # Check which subdirectories have already been processed
             existing_tfrecords = tf.io.gfile.glob(f"{base_output_dir}/*.tfrecord")
             processed_subdirs = {os.path.basename(p).replace('.tfrecord', '') for p in existing_tfrecords}
-            
-            # Filter out already processed subdirectories
             subdirs_to_process = [
                 subdir for subdir in all_subdirs 
                 if os.path.basename(subdir) not in processed_subdirs
@@ -253,17 +259,13 @@ class AudioProcessor:
                 )
                 
                 with tf.io.TFRecordWriter(output_path, options=options) as writer:
-                    # Process files in parallel using tf.data
-                    dataset = tf.data.Dataset.from_tensor_slices(audio_files)
-                    dataset = dataset.map(
-                        self._process_audio_file,
-                        num_parallel_calls=tf.data.AUTOTUNE
-                    )
-                    dataset = dataset.prefetch(tf.data.AUTOTUNE)
+                    # Process files in parallel
+                    results = self._process_files_parallel(audio_files, desc=f"Processing {subdir_name}")
                     
-                    for example in tqdm(dataset, total=len(audio_files), desc=f"Writing {subdir_name}"):
-                        if example is not None:
-                            writer.write(example.SerializeToString())
+                    # Write results to TFRecord
+                    for _, serialized_example in tqdm(results, desc=f"Writing {subdir_name}"):
+                        if serialized_example is not None:
+                            writer.write(serialized_example)
             
             # Memory cleanup after each batch
             gc.collect()
