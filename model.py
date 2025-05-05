@@ -12,7 +12,8 @@ import pywt
 import Pipeline
 from Pipeline import (
     AudioMixerGenerator, 
-    create_tf_dataset, 
+    create_tf_dataset,
+    create_tf_dataset_from_tfrecords,
     process_audio_files
 )
 
