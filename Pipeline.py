@@ -547,6 +547,9 @@ def create_tf_dataset_from_tfrecords(tfrecords_dir, num_speakers, batch_size=32,
     if not tfrecord_files:
         raise ValueError(f"No TFRecord files found in {tfrecords_dir}")
     
+    # Fixed length for all audio clips (1 second at 16kHz)
+    samples_per_clip = 16000
+    
     def _parse_tfrecord(example_proto):
         # Parse the input tf.Example proto
         feature_description = {
@@ -559,17 +562,27 @@ def create_tf_dataset_from_tfrecords(tfrecords_dir, num_speakers, batch_size=32,
         audio_tensor = tf.audio.decode_wav(parsed_features['audio_binary'])
         waveform = audio_tensor.audio
         
-        # Ensure the audio is the correct shape (samples, 1)
-        waveform = tf.reshape(waveform, (-1, 1))
+        # Ensure the audio is the correct length
+        current_length = tf.shape(waveform)[0]
+        
+        # If too short, pad with zeros
+        if current_length < samples_per_clip:
+            padding = [[0, samples_per_clip - current_length], [0, 0]]
+            waveform = tf.pad(waveform, padding)
+        # If too long, truncate
+        else:
+            waveform = waveform[:samples_per_clip]
+        
+        # Ensure the shape is (samples_per_clip, 1)
+        waveform = tf.reshape(waveform, (samples_per_clip, 1))
         
         return waveform
 
     def _prepare_batch(waveforms):
         # Create a batch of mixed audio and their separated components
         batch_size = tf.shape(waveforms)[0]
-        samples_per_clip = tf.shape(waveforms[0])[0]
         
-        # Randomly select and mix waveforms
+        # Initialize tensors with known fixed size
         mixed_audio = tf.zeros((batch_size, samples_per_clip, 1), dtype=tf.float32)
         separated_audio = tf.zeros((batch_size, num_speakers, samples_per_clip, 1), dtype=tf.float32)
         
