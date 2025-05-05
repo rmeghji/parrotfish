@@ -1238,17 +1238,17 @@ def train_model():
     )
     
     # Save the final model
-    model_save_path = os.path.join(config.CHECKPOINT_DIR, 'improved_wavelet_unet_final.keras')
+    model_save_path = os.path.join(config.CHECKPOINT_DIR, 'model.keras')
     
     # Special saving technique to ensure proper serialization
     model_json = model.to_json()
     with open(os.path.join(config.CHECKPOINT_DIR, 'model_architecture.json'), 'w') as json_file:
         json_file.write(model_json)
-    model.save_weights(os.path.join(config.CHECKPOINT_DIR, 'model_weights.h5'))
+    model.save_weights(os.path.join(config.CHECKPOINT_DIR, 'model.weights.h5'))
     
     # Also save in TensorFlow SavedModel format
     try:
-        saved_model_path = os.path.join(config.CHECKPOINT_DIR, 'improved_wavelet_unet_savedmodel')
+        saved_model_path = os.path.join(config.CHECKPOINT_DIR, 'model.savedmodel')
         tf.saved_model.save(model, saved_model_path)
         print(f"Model successfully saved to {saved_model_path}")
     except Exception as e:
