@@ -49,7 +49,7 @@ class Config:
     # Mixture generation
     MIN_SOURCES = 2
     MAX_SOURCES = 2 # first curriculum learning
-    NUM_EXAMPLES = BATCH_SIZE * 2000
+    NUM_EXAMPLES = BATCH_SIZE * 200
     
     # Wavelet settings
     WAVELET_FAMILY = 'db4'  # Daubechies wavelet with 4 vanishing moments
@@ -353,32 +353,55 @@ class IDWTLayer(tf.keras.layers.Layer):
         
         return output
     
+    # def _upsample(self, x):
+    #     """Upsample by inserting zeros between samples (for inverse DWT)"""
+    #     batch_size = self.batch_size
+    #     seq_len = tf.shape(x)[1]
+    #     channels = tf.shape(x)[2]
+        
+    #     # Create upsampled tensor with zeros
+    #     output = tf.zeros([batch_size, seq_len*2, channels], dtype=x.dtype)
+        
+    #     # Insert original values at even indices
+    #     indices = tf.range(0, seq_len*2, 2)
+    #     updates = tf.reshape(x, [batch_size, seq_len, channels])
+        
+    #     # Use tensor_scatter_nd_update
+    #     indices_tensor = tf.expand_dims(indices, axis=1)
+        
+    #     results = []
+    #     for b in range(batch_size):
+    #         batch_result = tf.tensor_scatter_nd_update(
+    #             output[b],
+    #             indices_tensor,
+    #             updates[b]
+    #         )
+    #         results.append(batch_result)
+        
+    #     return tf.stack(results, axis=0)
+
     def _upsample(self, x):
-        """Upsample by inserting zeros between samples (for inverse DWT)"""
-        batch_size = self.batch_size
+        """Vectorized upsampling without loops"""
+        batch_size = tf.shape(x)[0]
         seq_len = tf.shape(x)[1]
         channels = tf.shape(x)[2]
         
-        # Create upsampled tensor with zeros
+        # Create output tensor with zeros
         output = tf.zeros([batch_size, seq_len*2, channels], dtype=x.dtype)
         
-        # Insert original values at even indices
-        indices = tf.range(0, seq_len*2, 2)
-        updates = tf.reshape(x, [batch_size, seq_len, channels])
+        # Create indices for all batch items at once
+        batch_indices = tf.repeat(tf.range(batch_size), seq_len)  # [0,0,...,1,1,...,2,2,...]
+        seq_indices = tf.tile(tf.range(0, seq_len*2, 2), [batch_size])  # [0,2,4,...,0,2,4,...] 
         
-        # Use tensor_scatter_nd_update
-        indices_tensor = tf.expand_dims(indices, axis=1)
+        # Stack indices for a single scatter operation
+        indices = tf.stack([batch_indices, seq_indices], axis=1)
         
-        results = []
-        for b in range(batch_size):
-            batch_result = tf.tensor_scatter_nd_update(
-                output[b],
-                indices_tensor,
-                updates[b]
-            )
-            results.append(batch_result)
+        # Reshape updates to match indices
+        updates = tf.reshape(x, [-1, channels])
         
-        return tf.stack(results, axis=0)
+        # Single scatter operation for all batch items
+        return tf.tensor_scatter_nd_update(output, indices, updates)
+
     
     def get_config(self):
         config = super().get_config()
