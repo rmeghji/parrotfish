@@ -1505,7 +1505,7 @@ def evaluate_model(model, test_generator, num_examples=5):
     
 #     print(" Wavelet U-Net pipeline completed successfully!")
 
-def main(clips_dir=None, tfrecords_dir=None, num_speakers=config.MAX_SOURCES):
+def main(clips_dir=None, tfrecords_dir=None, save_directory=None, num_speakers=config.MAX_SOURCES):
     """Main function to run the audio source separation pipeline"""
     config = Config()
     
@@ -1603,7 +1603,23 @@ def main(clips_dir=None, tfrecords_dir=None, num_speakers=config.MAX_SOURCES):
             verbose=1
         ),
         tf.keras.callbacks.ModelCheckpoint(
+            filepath=os.path.join(save_directory, 'wavelet_unet_{epoch:02d}_{val_loss:.4f}.keras'),
+            save_best_only=True,
+            monitor='val_loss',
+            mode='min',
+            save_weights_only=False,
+            verbose=1
+        ),
+        tf.keras.callbacks.ModelCheckpoint(
             filepath=os.path.join(config.CHECKPOINT_DIR, 'wavelet_unet_{epoch:02d}_{val_loss:.4f}_weightsonly.weights.h5'),
+            save_best_only=True,
+            monitor='val_loss',
+            mode='min',
+            save_weights_only=True,
+            verbose=1
+        ),
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=os.path.join(save_directory, 'wavelet_unet_{epoch:02d}_{val_loss:.4f}_weightsonly.weights.h5'),
             save_best_only=True,
             monitor='val_loss',
             mode='min',
@@ -1644,20 +1660,28 @@ def main(clips_dir=None, tfrecords_dir=None, num_speakers=config.MAX_SOURCES):
     # Step 6: Save the final model
     print("Saving trained model...")
     model_save_path = os.path.join(config.CHECKPOINT_DIR, 'wavelet_unet_final.keras')
+    model_save_path2 = os.path.join(save_directory, 'wavelet_unet_final.keras')
     
     # Save model architecture as JSON
     model_json = model.to_json()
     with open(os.path.join(config.CHECKPOINT_DIR, 'model_architecture.json'), 'w') as json_file:
         json_file.write(model_json)
     
+    with open(os.path.join(save_directory, 'model_architecture.json'), 'w') as json_file:
+        json_file.write(model_json)
+    
     # Save weights
-    model.save_weights(os.path.join(config.CHECKPOINT_DIR, 'model_weights.h5'))
+    model.save_weights(os.path.join(config.CHECKPOINT_DIR, 'model.weights.h5'))
+    model.save_weights(os.path.join(save_directory, 'model.weights.h5'))
     
     # Try to save in TensorFlow SavedModel format
     try:
         saved_model_path = os.path.join(config.CHECKPOINT_DIR, 'wavelet_unet_savedmodel')
         tf.saved_model.save(model, saved_model_path)
+        saved_model_path2 = os.path.join(save_directory, 'wavelet_unet_savedmodel')
+        tf.saved_model.save(model, saved_model_path2)
         print(f"Model successfully saved to {saved_model_path}")
+        print(f"Model successfully saved to {saved_model_path2}")
     except Exception as e:
         print(f"Error saving in SavedModel format: {e}")
         print("Falling back to H5 format only")
@@ -1665,7 +1689,9 @@ def main(clips_dir=None, tfrecords_dir=None, num_speakers=config.MAX_SOURCES):
     try:
         # Save in H5 format
         model.save(model_save_path, save_format='h5')
+        model.save(model_save_path2, save_format='h5')
         print(f"Model successfully saved to {model_save_path}")
+        print(f"Model successfully saved to {model_save_path2}")
     except Exception as e:
         print(f"Error saving in H5 format: {e}")
         print("Model is saved as architecture + weights only")
@@ -1692,6 +1718,7 @@ def main(clips_dir=None, tfrecords_dir=None, num_speakers=config.MAX_SOURCES):
     
     plt.tight_layout()
     plt.savefig(os.path.join(config.CHECKPOINT_DIR, 'training_history.png'))
+    plt.savefig(os.path.join(save_directory, 'training_history.png'))
     
     print("Wavelet U-Net pipeline completed successfully!")
     return model, history
