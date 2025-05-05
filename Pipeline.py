@@ -184,7 +184,7 @@ class AudioProcessor:
             print(f"Error processing {audio_path}: {e}")
             return audio_path, None
 
-    def _process_files_parallel(self, audio_files, desc="Processing files", position=2):
+    def _process_files_parallel(self, audio_files, desc="Processing files", position=1, leave=False, ncols=100):
         """Process audio files in parallel using a thread pool"""
         # Use slightly fewer threads than CPUs to avoid overwhelming the system
         max_workers = max(1, mp.cpu_count() - 1)
@@ -198,10 +198,12 @@ class AudioProcessor:
             }
             
             # Process results as they complete
-            for future in tqdm(as_completed(future_to_path), total=len(audio_files), desc=desc, leave=False, position=position):
+            for future in tqdm(as_completed(future_to_path), total=len(audio_files), 
+                            desc=desc, leave=leave, position=position, ncols=ncols):
                 results.append(future.result())
         
         return results
+
 
     def convert_dataset_to_tfrecords_in_batches(self, base_input_dir, base_output_dir, batch_size=50, pause_duration=5, force_recompress=True):
         """Convert audio files from GCS to TFRecords in GCS using batches"""
@@ -237,7 +239,7 @@ class AudioProcessor:
             print(f"\nProcessing batch {batch_idx//batch_size + 1}/{(len(subdirs_to_process)-1)//batch_size + 1}")
             
             # Process each subdirectory in this batch
-            for subdir in tqdm(batch_subdirs, desc="Processing subdirectories", leave=False, position=0):
+            for subdir in tqdm(batch_subdirs, desc="Processing subdirectories", leave=True, position=0, ncols=100):
                 subdir_name = os.path.basename(subdir)
                 output_path = f"{base_output_dir}/{subdir_name}.tfrecord"
                 
@@ -247,10 +249,10 @@ class AudioProcessor:
                     audio_files.extend(tf.io.gfile.glob(f"{subdir}/*{ext}"))
                 
                 if not audio_files:
-                    print(f"  - {subdir_name}: No audio files found")
+                    tqdm.write(f"  - {subdir_name}: No audio files found")
                     continue
                 
-                print(f"  - {subdir_name}: Found {len(audio_files)} audio files")
+                tqdm.write(f"  - {subdir_name}: Found {len(audio_files)} audio files")
                 
                 # Create TFRecord directly in GCS with compression
                 options = tf.io.TFRecordOptions(
@@ -260,10 +262,10 @@ class AudioProcessor:
                 
                 with tf.io.TFRecordWriter(output_path, options=options) as writer:
                     # Process files in parallel
-                    results = self._process_files_parallel(audio_files, desc=f"Processing {subdir_name}", position=2)
+                    results = self._process_files_parallel(audio_files, desc=f"Processing {subdir_name}", position=1, leave=False, ncols=100)
                     
                     # Write results to TFRecord
-                    for _, serialized_example in tqdm(results, desc=f"Writing {subdir_name}", leave=False, position=1):
+                    for _, serialized_example in tqdm(results, desc=f"Writing {subdir_name}", leave=False, position=2, ncols=100):
                         if serialized_example is not None:
                             writer.write(serialized_example)
             
@@ -279,6 +281,7 @@ class AudioProcessor:
             if batch_idx + batch_size < len(subdirs_to_process):
                 print(f"Waiting {pause_duration} seconds before next batch...")
                 time.sleep(pause_duration)
+
 
     def serialize_audio(self, audio_path):
         """Convert a single audio file to TFRecord format features."""
