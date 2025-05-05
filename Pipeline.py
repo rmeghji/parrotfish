@@ -284,23 +284,6 @@ class AudioProcessor:
                 print(f"Waiting {pause_duration} seconds before next batch...")
                 time.sleep(pause_duration)
 
-
-
-
-    def serialize_audio(self, audio_path):
-        """Convert a single audio file to TFRecord format features."""
-        audio_binary = tf.io.read_file(audio_path)
-        return {
-            'audio_binary': tf.train.Feature(bytes_list=tf.train.BytesList(value=[audio_binary.numpy()])),
-            'path': tf.train.Feature(bytes_list=tf.train.BytesList(value=[audio_path.encode()]))
-        }
-
-    def create_tf_example(self, audio_path):
-        """Create a complete TF Example from an audio file."""
-        feature_dict = self.serialize_audio(audio_path)
-        example = tf.train.Example(features=tf.train.Features(feature=feature_dict))
-        return example
-
 def process_audio_files(base_folder, output_folder, clip_duration_seconds=1.0, window_overlap_ratio=0.1, batch_size=100):
     """Process all audio files in a folder and save clips to output folder with subfolder distribution"""
     # Create output folder
@@ -546,6 +529,82 @@ def create_tf_dataset(base_dir, clips_dir, num_speakers, batch_size=32, wavelet_
     )
 
     return dataset.prefetch(tf.data.AUTOTUNE)
+
+def create_tf_dataset_from_tfrecords(tfrecords_dir, num_speakers, batch_size=32, wavelet_level=5):
+    """Create a TensorFlow dataset from TFRecord files containing audio data
+    
+    Args:
+        tfrecords_dir: Directory containing TFRecord files
+        num_speakers: Number of speakers to mix
+        batch_size: Batch size for training
+        wavelet_level: Wavelet decomposition level
+        
+    Returns:
+        tf.data.Dataset: Dataset that yields (mixed_audio, separated_audio) pairs
+    """
+    # Get all TFRecord files
+    tfrecord_files = tf.io.gfile.glob(f"{tfrecords_dir}/*.tfrecord")
+    if not tfrecord_files:
+        raise ValueError(f"No TFRecord files found in {tfrecords_dir}")
+    
+    def _parse_tfrecord(example_proto):
+        # Parse the input tf.Example proto
+        feature_description = {
+            'audio_binary': tf.io.FixedLenFeature([], tf.string),
+            'path': tf.io.FixedLenFeature([], tf.string)
+        }
+        parsed_features = tf.io.parse_single_example(example_proto, feature_description)
+        
+        # Decode the audio binary data
+        audio_tensor = tf.audio.decode_wav(parsed_features['audio_binary'])
+        waveform = audio_tensor.audio
+        
+        # Ensure the audio is the correct shape (samples, 1)
+        waveform = tf.reshape(waveform, (-1, 1))
+        
+        return waveform
+
+    def _prepare_batch(waveforms):
+        # Create a batch of mixed audio and their separated components
+        batch_size = tf.shape(waveforms)[0]
+        samples_per_clip = tf.shape(waveforms[0])[0]
+        
+        # Randomly select and mix waveforms
+        mixed_audio = tf.zeros((samples_per_clip, 1), dtype=tf.float32)
+        separated_audio = tf.zeros((num_speakers, samples_per_clip, 1), dtype=tf.float32)
+        
+        # Randomly assign mixing weights
+        weights = tf.random.uniform((num_speakers,), minval=0.5, maxval=1.5)
+        weights = weights / tf.reduce_sum(weights)  # Normalize weights
+        
+        for i in range(num_speakers):
+            # Randomly select a waveform
+            idx = tf.random.uniform((), 0, batch_size, dtype=tf.int32)
+            waveform = waveforms[idx]
+            
+            # Apply mixing weight
+            weighted_waveform = waveform * weights[i]
+            
+            # Add to mixed audio and store separated component
+            mixed_audio += weighted_waveform
+            separated_audio = tf.tensor_scatter_nd_update(
+                separated_audio,
+                [[i]], 
+                [weighted_waveform]
+            )
+        
+        return mixed_audio, separated_audio
+
+    # Create dataset from TFRecord files
+    dataset = tf.data.TFRecordDataset(tfrecord_files, compression_type='GZIP')
+    
+    # Parse TFRecords and prepare batches
+    dataset = dataset.map(_parse_tfrecord, num_parallel_calls=tf.data.AUTOTUNE)
+    dataset = dataset.batch(batch_size)
+    dataset = dataset.map(_prepare_batch, num_parallel_calls=tf.data.AUTOTUNE)
+    dataset = dataset.prefetch(tf.data.AUTOTUNE)
+    
+    return dataset
 
 # DWT-based network layers
 @tf.keras.utils.register_keras_serializable()
