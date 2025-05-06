@@ -103,6 +103,9 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_spe
 
         random.shuffle(tfrecord_files)
         num_val_records = int(len(tfrecord_files) * config.VAL_SPLIT)
+        print(f"Num records: {len(tfrecord_files)}")
+        print(f"Num val records: {num_val_records}")
+        print(f"Num train records: {len(tfrecord_files) - num_val_records}")
         train_records = tfrecord_files[:-num_val_records]
         val_records = tfrecord_files[-num_val_records:]
 
