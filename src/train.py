@@ -107,8 +107,11 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_spe
     train_steps = int(train_size / config.BATCH_SIZE)
     val_steps = int(val_size / config.BATCH_SIZE)
     
-    train_dataset = dataset.take(train_size).repeat()
-    val_dataset = dataset.skip(train_size).take(val_size).repeat()
+    # train_dataset = dataset.take(train_size).repeat()
+    # val_dataset = dataset.skip(train_size).take(val_size).repeat()
+
+    train_dataset = dataset.repeat()
+    val_dataset = dataset.repeat()
     
     print(f"Training dataset created with {train_size} examples")
     print(f"Validation dataset created with {int(config.NUM_EXAMPLES * config.VAL_SPLIT)} examples")
