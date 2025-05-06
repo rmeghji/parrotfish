@@ -20,7 +20,7 @@ class Config:
     
     # Training settings
     LEARNING_RATE = 1e-4
-    EPOCHS = 50
+    EPOCHS = 100
     VAL_SPLIT = 0.1
     CHECKPOINT_DIR = "checkpoints"
     MAX_WORKERS = 4
@@ -29,7 +29,7 @@ class Config:
     # Mixture generation
     MIN_SOURCES = 2
     MAX_SOURCES = 2 # first curriculum learning
-    NUM_EXAMPLES = BATCH_SIZE * 10
+    NUM_EXAMPLES = BATCH_SIZE * 2000
     
     # Wavelet settings
     WAVELET_FAMILY = 'db4'  # Daubechies wavelet with 4 vanishing moments
