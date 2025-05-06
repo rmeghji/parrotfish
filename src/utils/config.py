@@ -29,7 +29,7 @@ class Config:
     # Mixture generation
     MIN_SOURCES = 2
     MAX_SOURCES = 2 # first curriculum learning
-    NUM_EXAMPLES = BATCH_SIZE * 5000
+    NUM_EXAMPLES = BATCH_SIZE * 10
     
     # Wavelet settings
     WAVELET_FAMILY = 'db4'  # Daubechies wavelet with 4 vanishing moments
