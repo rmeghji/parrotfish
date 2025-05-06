@@ -218,21 +218,19 @@ def create_tf_dataset(base_dir, clips_dir, num_speakers, batch_size=32, wavelet_
 
     return dataset.prefetch(tf.data.AUTOTUNE)
 
-def create_tf_dataset_from_tfrecords(tfrecords_dir, num_speakers, batch_size=32, wavelet_level=5):
+def create_tf_dataset_from_tfrecords(tfrecord_files, num_speakers, batch_size=32, is_train=True):
     """Create a TensorFlow dataset from TFRecord files containing audio data
     
     Args:
-        tfrecords_dir: Directory containing TFRecord files
+        tfrecord_files: List of TFRecord files
         num_speakers: Number of speakers to mix
         batch_size: Batch size for training
-        wavelet_level: Wavelet decomposition level
+        is_train: Whether to use training-specific logic
         
     Returns:
         tf.data.Dataset: Dataset that yields (mixed_audio, separated_audio) pairs
     """
-    tfrecord_files = tf.io.gfile.glob(f"{tfrecords_dir}/*.tfrecord")
-    if not tfrecord_files:
-        raise ValueError(f"No TFRecord files found in {tfrecords_dir}")
+    
     samples_per_clip = 16000
     
     def _parse_tfrecord(example_proto):
@@ -280,8 +278,12 @@ def create_tf_dataset_from_tfrecords(tfrecords_dir, num_speakers, batch_size=32,
         
         return mixed_audio, separated_audio
 
-    dataset = tf.data.TFRecordDataset(tfrecord_files, compression_type='GZIP')
+    dataset = tf.data.TFRecordDataset(tfrecord_files, compression_type='GZIP', num_parallel_reads=tf.data.AUTOTUNE)
     dataset = dataset.map(_parse_tfrecord, num_parallel_calls=tf.data.AUTOTUNE)
+    dataset = dataset.cache()
+    if is_train:
+        dataset = dataset.repeat()
+        dataset = dataset.shuffle(buffer_size=30000)
     dataset = dataset.batch(batch_size)
     dataset = dataset.map(_prepare_batch, num_parallel_calls=tf.data.AUTOTUNE)
     dataset = dataset.prefetch(tf.data.AUTOTUNE)

@@ -24,6 +24,7 @@ class Config:
     VAL_SPLIT = 0.1
     CHECKPOINT_DIR = "checkpoints"
     MAX_WORKERS = 4
+    CACHE_REFRESH_EVERY = 5
     
     # Mixture generation
     MIN_SOURCES = 2

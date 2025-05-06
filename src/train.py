@@ -93,12 +93,30 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_spe
             num_speakers=num_speakers,
             batch_size=config.BATCH_SIZE
         )
+        train_dataset = dataset.take(train_steps).repeat()
+        val_dataset = dataset.skip(train_steps).take(val_steps).repeat()
     elif tfrecords_dir and not clips_dir:
         print("Creating TensorFlow dataset for training from TFRecords...")
-        dataset = create_tf_dataset_from_tfrecords(
-            tfrecords_dir=tfrecords_dir,
+        tfrecord_files = tf.io.gfile.glob(f"{tfrecords_dir}/*.tfrecord")
+        if not tfrecord_files:
+            raise ValueError(f"No TFRecord files found in {tfrecords_dir}")
+
+        random.shuffle(tfrecord_files)
+        num_val_records = int(len(tfrecord_files) * config.VAL_SPLIT)
+        train_records = tfrecord_files[:-num_val_records]
+        val_records = tfrecord_files[-num_val_records:]
+
+        train_dataset = create_tf_dataset_from_tfrecords(
+            tfrecord_files=train_records,
             num_speakers=num_speakers,
-            batch_size=config.BATCH_SIZE
+            batch_size=config.BATCH_SIZE,
+            is_train=True
+        )
+        val_dataset = create_tf_dataset_from_tfrecords(
+            tfrecord_files=val_records,
+            num_speakers=num_speakers,
+            batch_size=config.BATCH_SIZE,
+            is_train=False
         )
 
     train_size = int(config.NUM_EXAMPLES * (1 - config.VAL_SPLIT))
@@ -106,12 +124,6 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_spe
     
     train_steps = int(train_size / config.BATCH_SIZE)
     val_steps = int(val_size / config.BATCH_SIZE)
-    
-    # train_dataset = dataset.take(train_size).repeat()
-    # val_dataset = dataset.skip(train_size).take(val_size).repeat()
-
-    train_dataset = dataset.repeat()
-    val_dataset = dataset.repeat()
     
     print(f"Training dataset created with {train_size} examples")
     print(f"Validation dataset created with {int(config.NUM_EXAMPLES * config.VAL_SPLIT)} examples")
