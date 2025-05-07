@@ -847,7 +847,7 @@ class WaveletUNet(tf.keras.Model):
         super().build(input_shape)
         self.summary()
 
-    @tf.function(jit_compile=True, reduce_retracing=True)
+    # @tf.function(jit_compile=True, reduce_retracing=True)
     def call(self, inputs, training=True):
         # Initial processing
         current_layer = self.initial_conv(inputs)
