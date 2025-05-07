@@ -25,9 +25,13 @@ config = Config()
 @tf.function(jit_compile=True)
 def gelu(x):
     """Gaussian Error Linear Unit activation function, mixed-precision compatible"""
-    sqrt_2_over_pi = tf.constant(np.sqrt(2.0 / np.pi), dtype=tf.float32)
-    gelu_coefficient = tf.constant(0.044715, dtype=tf.float32)
-    return 0.5 * x * (1.0 + tf.tanh(sqrt_2_over_pi * (x + gelu_coefficient * tf.pow(x, 3))))
+    x_dtype = x.dtype
+    sqrt_2_over_pi = tf.cast(tf.constant(np.sqrt(2.0 / np.pi), dtype=tf.float32), dtype=x_dtype)
+    gelu_coefficient = tf.cast(tf.constant(0.044715, dtype=tf.float32), dtype=x_dtype)
+    const_0_5 = tf.cast(0.5, dtype=x_dtype)
+    const_1_0 = tf.cast(1.0, dtype=x_dtype)
+
+    return const_0_5 * x * (const_1_0 + tf.tanh(sqrt_2_over_pi * (x + gelu_coefficient * tf.pow(x, 3))))
 
 @tf.keras.utils.register_keras_serializable()
 class DWTLayer(tf.keras.layers.Layer):
