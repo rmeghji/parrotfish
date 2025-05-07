@@ -212,51 +212,51 @@ class IDWTLayer(tf.keras.layers.Layer):
         
         super().build(input_shape)
     
-    # @tf.function(jit_compile=True)
-    # def call(self, inputs):
-    #     # Split the channels into approximation and detail coefficients
-    #     approx_coeffs = inputs[:, :, :self.in_channels]
-    #     detail_coeffs = inputs[:, :, self.in_channels:]
+    @tf.function(jit_compile=True, reduce_retracing=True)
+    def call(self, inputs):
+        # Split the channels into approximation and detail coefficients
+        approx_coeffs = inputs[:, :, :self.in_channels]
+        detail_coeffs = inputs[:, :, self.in_channels:]
         
-    #     batch_size = tf.shape(inputs)[0]
-    #     seq_len = tf.shape(inputs)[1]
-    #     output_channels = []
+        batch_size = tf.shape(inputs)[0]
+        seq_len = tf.shape(inputs)[1]
+        output_channels = []
         
-    #     for c in range(self.in_channels):
-    #         # Get coefficients for this channel
-    #         approx = approx_coeffs[:, :, c:c+1]
-    #         detail = detail_coeffs[:, :, c:c+1]
+        for c in range(self.in_channels):
+            # Get coefficients for this channel
+            approx = approx_coeffs[:, :, c:c+1]
+            detail = detail_coeffs[:, :, c:c+1]
             
-    #         # Upsample (insert zeros)
-    #         approx_up = self._upsample(approx)
-    #         detail_up = self._upsample(detail)
+            # Upsample (insert zeros)
+            approx_up = self._upsample(approx)
+            detail_up = self._upsample(detail)
             
-    #         # Apply reconstruction filters
-    #         approx_recon = tf.nn.conv1d(
-    #             approx_up,
-    #             self.rec_lo_filter,
-    #             stride=1,
-    #             padding='SAME'
-    #         )
+            # Apply reconstruction filters
+            approx_recon = tf.nn.conv1d(
+                approx_up,
+                self.rec_lo_filter,
+                stride=1,
+                padding='SAME'
+            )
             
-    #         detail_recon = tf.nn.conv1d(
-    #             detail_up,
-    #             self.rec_hi_filter,
-    #             stride=1,
-    #             padding='SAME'
-    #         )
+            detail_recon = tf.nn.conv1d(
+                detail_up,
+                self.rec_hi_filter,
+                stride=1,
+                padding='SAME'
+            )
             
-    #         # Combine approximation and detail for reconstruction
-    #         recon = approx_recon + detail_recon
-    #         output_channels.append(recon)
+            # Combine approximation and detail for reconstruction
+            recon = approx_recon + detail_recon
+            output_channels.append(recon)
         
-    #     # Concatenate all channels
-    #     if self.in_channels > 1:
-    #         output = tf.concat(output_channels, axis=-1)
-    #     else:
-    #         output = output_channels[0]
+        # Concatenate all channels
+        if self.in_channels > 1:
+            output = tf.concat(output_channels, axis=-1)
+        else:
+            output = output_channels[0]
         
-    #     return output
+        return output
 
     ##### ORIGINAL
     @tf.function(jit_compile=True, reduce_retracing=True)
@@ -331,49 +331,49 @@ class IDWTLayer(tf.keras.layers.Layer):
     #     return tf.tensor_scatter_nd_update(output, indices, updates)
 
 
-    @tf.function(jit_compile=True, reduce_retracing=True)
-    def call(self, inputs):
-        # inputs shape: (batch_size, seq_len, self.in_channels * 2)
-        approx_coeffs = inputs[:, :, :self.in_channels]  # (batch_size, seq_len, self.in_channels)
-        detail_coeffs = inputs[:, :, self.in_channels:] # (batch_size, seq_len, self.in_channels)
+    # @tf.function(jit_compile=True, reduce_retracing=True)
+    # def call(self, inputs):
+    #     # inputs shape: (batch_size, seq_len, self.in_channels * 2)
+    #     approx_coeffs = inputs[:, :, :self.in_channels]  # (batch_size, seq_len, self.in_channels)
+    #     detail_coeffs = inputs[:, :, self.in_channels:] # (batch_size, seq_len, self.in_channels)
 
-        batch_size = tf.shape(inputs)[0]
-        original_seq_len = tf.shape(approx_coeffs)[1] # seq_len of coeffs
-        num_in_channels = self.in_channels
+    #     batch_size = tf.shape(inputs)[0]
+    #     original_seq_len = tf.shape(approx_coeffs)[1] # seq_len of coeffs
+    #     num_in_channels = self.in_channels
 
-        # Upsample
-        approx_up = self._upsample(approx_coeffs)  # (batch_size, original_seq_len * 2, num_in_channels)
-        detail_up = self._upsample(detail_coeffs)  # (batch_size, original_seq_len * 2, num_in_channels)
+    #     # Upsample
+    #     approx_up = self._upsample(approx_coeffs)  # (batch_size, original_seq_len * 2, num_in_channels)
+    #     detail_up = self._upsample(detail_coeffs)  # (batch_size, original_seq_len * 2, num_in_channels)
 
-        # Reshape to combine batch and channel dimensions for independent conv1d application
-        # New shape: (batch_size * num_in_channels, original_seq_len * 2, 1)
-        approx_up_reshaped = tf.reshape(tf.transpose(approx_up, [0, 2, 1]), [-1, original_seq_len * 2, 1])
-        detail_up_reshaped = tf.reshape(tf.transpose(detail_up, [0, 2, 1]), [-1, original_seq_len * 2, 1])
+    #     # Reshape to combine batch and channel dimensions for independent conv1d application
+    #     # New shape: (batch_size * num_in_channels, original_seq_len * 2, 1)
+    #     approx_up_reshaped = tf.reshape(tf.transpose(approx_up, [0, 2, 1]), [-1, original_seq_len * 2, 1])
+    #     detail_up_reshaped = tf.reshape(tf.transpose(detail_up, [0, 2, 1]), [-1, original_seq_len * 2, 1])
 
-        # Apply reconstruction filters (self.rec_lo_filter shape is (filter_length, 1, 1))
-        approx_recon_flat = tf.nn.conv1d(
-            approx_up_reshaped,
-            self.rec_lo_filter, # Filter has in_channels=1, out_channels=1
-            stride=1,
-            padding='SAME'
-        ) # Output shape: (batch_size * num_in_channels, original_seq_len * 2, 1)
+    #     # Apply reconstruction filters (self.rec_lo_filter shape is (filter_length, 1, 1))
+    #     approx_recon_flat = tf.nn.conv1d(
+    #         approx_up_reshaped,
+    #         self.rec_lo_filter, # Filter has in_channels=1, out_channels=1
+    #         stride=1,
+    #         padding='SAME'
+    #     ) # Output shape: (batch_size * num_in_channels, original_seq_len * 2, 1)
         
-        detail_recon_flat = tf.nn.conv1d(
-            detail_up_reshaped,
-            self.rec_hi_filter, # Filter has in_channels=1, out_channels=1
-            stride=1,
-            padding='SAME'
-        ) # Output shape: (batch_size * num_in_channels, original_seq_len * 2, 1)
+    #     detail_recon_flat = tf.nn.conv1d(
+    #         detail_up_reshaped,
+    #         self.rec_hi_filter, # Filter has in_channels=1, out_channels=1
+    #         stride=1,
+    #         padding='SAME'
+    #     ) # Output shape: (batch_size * num_in_channels, original_seq_len * 2, 1)
 
-        # Reshape back to (batch_size, num_in_channels, original_seq_len * 2) then transpose
-        # Target shape: (batch_size, original_seq_len * 2, num_in_channels)
-        approx_recon = tf.transpose(tf.reshape(approx_recon_flat, [batch_size, num_in_channels, original_seq_len * 2, 1]), [0, 2, 1, 3])
-        approx_recon = tf.squeeze(approx_recon, axis=-1) # Remove the trailing 1 dimension
+    #     # Reshape back to (batch_size, num_in_channels, original_seq_len * 2) then transpose
+    #     # Target shape: (batch_size, original_seq_len * 2, num_in_channels)
+    #     approx_recon = tf.transpose(tf.reshape(approx_recon_flat, [batch_size, num_in_channels, original_seq_len * 2, 1]), [0, 2, 1, 3])
+    #     approx_recon = tf.squeeze(approx_recon, axis=-1) # Remove the trailing 1 dimension
 
-        detail_recon = tf.transpose(tf.reshape(detail_recon_flat, [batch_size, num_in_channels, original_seq_len * 2, 1]), [0, 2, 1, 3])
-        detail_recon = tf.squeeze(detail_recon, axis=-1) # Remove the trailing 1 dimension
+    #     detail_recon = tf.transpose(tf.reshape(detail_recon_flat, [batch_size, num_in_channels, original_seq_len * 2, 1]), [0, 2, 1, 3])
+    #     detail_recon = tf.squeeze(detail_recon, axis=-1) # Remove the trailing 1 dimension
         
-        return approx_recon + detail_recon
+    #     return approx_recon + detail_recon
 
     
     def get_config(self):
