@@ -17,23 +17,12 @@ from utils.config import Config
 
 config = Config()
 
-# @tf.function(jit_compile=True, reduce_retracing=True)
+# GELU Activation Function
 def gelu(x):
     """Gaussian Error Linear Unit activation function"""
-    return 0.5 * x * (1.0 + tf.tanh(tf.sqrt(2.0 / np.pi) * (x + 0.044715 * tf.pow(x, 3))))
+    return 0.5 * x * (1 + tf.tanh(tf.sqrt(2 / np.pi) * (x + 0.044715 * tf.pow(x, 3))))
 
-# @tf.function(jit_compile=True, reduce_retracing=True)
-# def gelu(x):
-#     """Gaussian Error Linear Unit activation function, mixed-precision compatible"""
-#     # x_dtype = x.dtype
-#     x_dtype = tf.float16
-#     sqrt_2_over_pi = tf.cast(tf.constant(np.sqrt(2.0 / np.pi), dtype=tf.float32), dtype=x_dtype)
-#     gelu_coefficient = tf.cast(tf.constant(0.044715, dtype=tf.float32), dtype=x_dtype)
-#     const_0_5 = tf.cast(0.5, dtype=x_dtype)
-#     const_1_0 = tf.cast(1.0, dtype=x_dtype)
-
-#     return const_0_5 * x * (const_1_0 + tf.tanh(sqrt_2_over_pi * (x + gelu_coefficient * tf.pow(x, 3))))
-
+# Wavelet Transform Functions
 @tf.keras.utils.register_keras_serializable()
 class DWTLayer(tf.keras.layers.Layer):
     def __init__(self, wavelet_family='db4', mode='periodization', name=None, **kwargs):
@@ -72,7 +61,6 @@ class DWTLayer(tf.keras.layers.Layer):
         
         super().build(input_shape)
     
-    # @tf.function(jit_compile=True, reduce_retracing=True)
     def call(self, inputs):
         # Handle padding for odd length inputs
         orig_shape = tf.shape(inputs)
@@ -127,47 +115,6 @@ class DWTLayer(tf.keras.layers.Layer):
         
         # Concatenate approximation and detail coefficients along the channel axis
         return tf.concat([approx_coeffs, detail_coeffs], axis=-1)
-
-    #### new optimization experiment
-    # @tf.function(jit_compile=True, reduce_retracing=True)
-    # def call(self, inputs):
-    #     # Handle padding for odd length inputs
-    #     orig_shape = tf.shape(inputs)
-        
-    #     # Add boundary padding based on wavelet filter length
-    #     pad_size = self.filter_length - 1
-    #     padded_inputs = tf.pad(inputs, [[0, 0], [pad_size, pad_size], [0, 0]], mode='REFLECT')
-        
-    #     # Process all channels in parallel instead of looping
-    #     # Reshape to combine batch and channel dimensions
-    #     batch_size = tf.shape(inputs)[0]
-    #     reshaped_inputs = tf.reshape(padded_inputs, [batch_size * self.channels, -1, 1])
-        
-    #     # Apply filters to all channels at once
-    #     approx = tf.nn.conv1d(
-    #         reshaped_inputs,
-    #         self.dec_lo_filter,
-    #         stride=2,
-    #         padding='VALID'
-    #     )
-        
-    #     detail = tf.nn.conv1d(
-    #         reshaped_inputs,
-    #         self.dec_hi_filter,
-    #         stride=2,
-    #         padding='VALID'
-    #     )
-        
-    #     # Remove excess padding
-    #     approx = approx[:, (pad_size // 2):-(pad_size // 2) if pad_size > 1 else None, :]
-    #     detail = detail[:, (pad_size // 2):-(pad_size // 2) if pad_size > 1 else None, :]
-        
-    #     # Reshape back to separate batch and channel dimensions
-    #     approx = tf.reshape(approx, [batch_size, -1, self.channels])
-    #     detail = tf.reshape(detail, [batch_size, -1, self.channels])
-        
-    #     # Concatenate along the channel axis
-    #     return tf.concat([approx, detail], axis=-1)
     
     def get_config(self):
         config = super().get_config()
@@ -212,7 +159,6 @@ class IDWTLayer(tf.keras.layers.Layer):
         
         super().build(input_shape)
     
-    # @tf.function(jit_compile=True, reduce_retracing=True)
     def call(self, inputs):
         # Split the channels into approximation and detail coefficients
         approx_coeffs = inputs[:, :, :self.in_channels]
@@ -258,8 +204,6 @@ class IDWTLayer(tf.keras.layers.Layer):
         
         return output
 
-    ##### ORIGINAL
-    # @tf.function(jit_compile=True, reduce_retracing=True)
     def _upsample(self, x):
         """Vectorized upsampling without loops"""
         batch_size = tf.shape(x)[0]
@@ -272,108 +216,6 @@ class IDWTLayer(tf.keras.layers.Layer):
         updates = tf.reshape(x, [-1, channels])
 
         return tf.tensor_scatter_nd_update(output, indices, updates)
-
-    # #### new optimization experiment
-    # @tf.function(jit_compile=True)
-    # def call(self, inputs):
-    #     # Split the channels into approximation and detail coefficients
-    #     approx_coeffs = inputs[:, :, :self.in_channels]
-    #     detail_coeffs = inputs[:, :, self.in_channels:]
-        
-    #     # Process all channels in parallel
-    #     # Upsample both coefficients
-    #     approx_up = self._upsample(approx_coeffs)
-    #     detail_up = self._upsample(detail_coeffs)
-        
-    #     # Apply reconstruction filters
-    #     approx_recon = tf.nn.conv1d(
-    #         approx_up,
-    #         self.rec_lo_filter,
-    #         stride=1,
-    #         padding='SAME'
-    #     )
-        
-    #     detail_recon = tf.nn.conv1d(
-    #         detail_up,
-    #         self.rec_hi_filter,
-    #         stride=1,
-    #         padding='SAME'
-    #     )
-        
-    #     # Combine approximation and detail for reconstruction
-    #     return approx_recon + detail_recon
-
-    # horseshit maybe
-    # @tf.function(jit_compile=True, reduce_retracing=True)
-    # def _upsample(self, x):
-    #     """Vectorized upsampling without loops"""
-    #     batch_size = tf.shape(x)[0]
-    #     seq_len = tf.shape(x)[1]
-    #     channels = tf.shape(x)[2]
-    #     output = tf.zeros([batch_size, seq_len * 2, channels], dtype=x.dtype)
-        
-    #     # Create indices for even positions
-    #     # For scatter_nd, indices should be a 2D tensor where each row is an index
-    #     idx_batch = tf.range(batch_size)
-    #     idx_batch = tf.expand_dims(idx_batch, axis=1) # Shape: [batch_size, 1]
-    #     idx_batch = tf.tile(idx_batch, [1, seq_len])   # Shape: [batch_size, seq_len]
-    #     idx_batch_flat = tf.reshape(idx_batch, [-1])  # Shape: [batch_size * seq_len]
-
-    #     idx_seq = tf.range(0, seq_len * 2, 2)       # Shape: [seq_len]
-    #     idx_seq = tf.expand_dims(idx_seq, axis=0)   # Shape: [1, seq_len]
-    #     idx_seq = tf.tile(idx_seq, [batch_size, 1]) # Shape: [batch_size, seq_len]
-    #     idx_seq_flat = tf.reshape(idx_seq, [-1])    # Shape: [batch_size * seq_len]
-
-    #     indices = tf.stack([idx_batch_flat, idx_seq_flat], axis=1) # Shape: [batch_size * seq_len, 2]
-        
-    #     updates = tf.reshape(x, [-1, channels]) # Shape: [batch_size * seq_len, channels]
-
-    #     return tf.tensor_scatter_nd_update(output, indices, updates)
-
-
-    # @tf.function(jit_compile=True, reduce_retracing=True)
-    # def call(self, inputs):
-    #     # inputs shape: (batch_size, seq_len, self.in_channels * 2)
-    #     approx_coeffs = inputs[:, :, :self.in_channels]  # (batch_size, seq_len, self.in_channels)
-    #     detail_coeffs = inputs[:, :, self.in_channels:] # (batch_size, seq_len, self.in_channels)
-
-    #     batch_size = tf.shape(inputs)[0]
-    #     original_seq_len = tf.shape(approx_coeffs)[1] # seq_len of coeffs
-    #     num_in_channels = self.in_channels
-
-    #     # Upsample
-    #     approx_up = self._upsample(approx_coeffs)  # (batch_size, original_seq_len * 2, num_in_channels)
-    #     detail_up = self._upsample(detail_coeffs)  # (batch_size, original_seq_len * 2, num_in_channels)
-
-    #     # Reshape to combine batch and channel dimensions for independent conv1d application
-    #     # New shape: (batch_size * num_in_channels, original_seq_len * 2, 1)
-    #     approx_up_reshaped = tf.reshape(tf.transpose(approx_up, [0, 2, 1]), [-1, original_seq_len * 2, 1])
-    #     detail_up_reshaped = tf.reshape(tf.transpose(detail_up, [0, 2, 1]), [-1, original_seq_len * 2, 1])
-
-    #     # Apply reconstruction filters (self.rec_lo_filter shape is (filter_length, 1, 1))
-    #     approx_recon_flat = tf.nn.conv1d(
-    #         approx_up_reshaped,
-    #         self.rec_lo_filter, # Filter has in_channels=1, out_channels=1
-    #         stride=1,
-    #         padding='SAME'
-    #     ) # Output shape: (batch_size * num_in_channels, original_seq_len * 2, 1)
-        
-    #     detail_recon_flat = tf.nn.conv1d(
-    #         detail_up_reshaped,
-    #         self.rec_hi_filter, # Filter has in_channels=1, out_channels=1
-    #         stride=1,
-    #         padding='SAME'
-    #     ) # Output shape: (batch_size * num_in_channels, original_seq_len * 2, 1)
-
-    #     # Reshape back to (batch_size, num_in_channels, original_seq_len * 2) then transpose
-    #     # Target shape: (batch_size, original_seq_len * 2, num_in_channels)
-    #     approx_recon = tf.transpose(tf.reshape(approx_recon_flat, [batch_size, num_in_channels, original_seq_len * 2, 1]), [0, 2, 1, 3])
-    #     approx_recon = tf.squeeze(approx_recon, axis=-1) # Remove the trailing 1 dimension
-
-    #     detail_recon = tf.transpose(tf.reshape(detail_recon_flat, [batch_size, num_in_channels, original_seq_len * 2, 1]), [0, 2, 1, 3])
-    #     detail_recon = tf.squeeze(detail_recon, axis=-1) # Remove the trailing 1 dimension
-        
-    #     return approx_recon + detail_recon
 
     
     def get_config(self):
@@ -422,7 +264,6 @@ class DownsamplingLayer(tf.keras.layers.Layer):
         
         super().build(input_shape)
 
-    # @tf.function(jit_compile=True, reduce_retracing=True)
     def call(self, inputs):
         # Residual connection
         if self.input_proj is not None:
@@ -524,7 +365,6 @@ class UpsamplingLayer(tf.keras.layers.Layer):
         
         super().build(input_shape)
 
-    # @tf.function(jit_compile=True, reduce_retracing=True)
     def call(self, inputs):
         # Split into approximation and detail coefficients
         half_channels = self.input_channels // 2
@@ -610,8 +450,7 @@ class GatedSkipConnection(tf.keras.layers.Layer):
         self.norm = tf.keras.layers.LayerNormalization(name=f'skip_norm_{self.name}')
         
         super().build(input_shape)
-
-    # @tf.function(jit_compile=True, reduce_retracing=True)
+        
     def call(self, inputs):
         # Unpack inputs
         decoder_features, encoder_features = inputs
@@ -848,15 +687,11 @@ class WaveletUNet(tf.keras.Model):
         super().build(input_shape)
         self.summary()
 
-    # @tf.function(jit_compile=True, reduce_retracing=True)
     def call(self, inputs, training=True):
         # Initial processing
-        # tf.print("inputs shape on layer 0: ", tf.shape(inputs))
         current_layer = self.initial_conv(inputs)
-        # tf.print("current_layer shape after conv on layer 0: ", tf.shape(current_layer))
         current_layer = self.initial_norm(current_layer)
         current_layer = gelu(current_layer)
-        # tf.print("current_layer shape after gelu on layer 0: ", tf.shape(current_layer))
         
         # Store the input for skip connection to final layer
         full_mix = tf.reduce_sum(inputs, axis=-1, keepdims=True)
@@ -867,22 +702,18 @@ class WaveletUNet(tf.keras.Model):
         # Downsampling path
         for i in range(self.num_layers):
             block_name = f'{i+1}'
-            # tf.print("current_layer shape before ds on layer ", block_name, ": ", tf.shape(current_layer))
             
             # Apply enhanced downsampling
             current_layer = self.downsampling_blocks[block_name](current_layer)
-            # tf.print("current_layer shape after ds on layer ", block_name, ": ", tf.shape(current_layer))
-
+            
             # Save for skip connections
             enc_outputs[block_name] = current_layer
             
             # Apply DWT
             current_layer = self.dwt_layers[block_name](current_layer)
-            # tf.print("current_layer shape after dwt on layer ", block_name, ": ", tf.shape(current_layer))
             
             # Post-DWT processing
             current_layer = self.down_process_blocks[block_name](current_layer)
-            # tf.print("current_layer shape after down process on layer ", block_name, ": ", tf.shape(current_layer))
 
         # Bottle neck
         current_layer = self.bottle_neck(current_layer)
@@ -893,21 +724,17 @@ class WaveletUNet(tf.keras.Model):
             
             # Apply inverse DWT
             current_layer = self.idwt_layers[block_name](current_layer)
-            # tf.print("current_layer shape after idwt on layer ", block_name, ": ", tf.shape(current_layer))
             
             # Pre-skip connection processing
             current_layer = self.up_process_blocks[block_name](current_layer)
-            # tf.print("current_layer shape after up process on layer ", block_name, ": ", tf.shape(current_layer))
             
             # Get skip connection from encoder
             skip_conn = enc_outputs[block_name]
             
             # Match dimensions if needed
             if current_layer.shape[1] != skip_conn.shape[1]:
-                # diff = skip_conn.shape[1] - current_layer.shape[1]
-                diff = tf.shape(skip_conn)[1] - tf.shape(current_layer)[1]
-                # if diff > 0:
-                if tf.greater(diff, 0):
+                diff = skip_conn.shape[1] - current_layer.shape[1]
+                if diff > 0:
                     # Pad if skip connection is larger
                     pad_start = diff // 2
                     pad_end = diff - pad_start
@@ -920,15 +747,12 @@ class WaveletUNet(tf.keras.Model):
             
             # Apply enhanced skip connection
             current_layer = self.skip_connections[block_name]([current_layer, skip_conn])
-            # tf.print("current_layer shape after skip connection on layer ", block_name, ": ", tf.shape(current_layer))
             
             # Post-skip connection processing
             current_layer = self.upsampling_blocks[block_name](current_layer)
-            # tf.print("current_layer shape after upsampling on layer ", block_name, ": ", tf.shape(current_layer))
 
         # Final processing
         current_layer = self.final_conv(current_layer)
-        # tf.print("current_layer shape after final conv: ", tf.shape(current_layer))
         
         # Ensure the final layer matches the input dimensions
         if current_layer.shape[1] != self.num_coeffs:
