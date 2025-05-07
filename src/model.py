@@ -850,9 +850,12 @@ class WaveletUNet(tf.keras.Model):
     # @tf.function(jit_compile=True, reduce_retracing=True)
     def call(self, inputs, training=True):
         # Initial processing
+        tf.print("inputs shape on layer 0: ", tf.shape(inputs))
         current_layer = self.initial_conv(inputs)
+        tf.print("current_layer shape after conv on layer 0: ", tf.shape(current_layer))
         current_layer = self.initial_norm(current_layer)
         current_layer = gelu(current_layer)
+        tf.print("current_layer shape after gelu on layer 0: ", tf.shape(current_layer))
         
         # Store the input for skip connection to final layer
         full_mix = tf.reduce_sum(inputs, axis=-1, keepdims=True)
@@ -863,18 +866,22 @@ class WaveletUNet(tf.keras.Model):
         # Downsampling path
         for i in range(self.num_layers):
             block_name = f'{i+1}'
+            tf.print("current_layer shape before ds on layer ", block_name, ": ", tf.shape(current_layer))
             
             # Apply enhanced downsampling
             current_layer = self.downsampling_blocks[block_name](current_layer)
-            
+            tf.print("current_layer shape after ds on layer ", block_name, ": ", tf.shape(current_layer))
+
             # Save for skip connections
             enc_outputs[block_name] = current_layer
             
             # Apply DWT
             current_layer = self.dwt_layers[block_name](current_layer)
+            tf.print("current_layer shape after dwt on layer ", block_name, ": ", tf.shape(current_layer))
             
             # Post-DWT processing
             current_layer = self.down_process_blocks[block_name](current_layer)
+            tf.print("current_layer shape after down process on layer ", block_name, ": ", tf.shape(current_layer))
 
         # Bottle neck
         current_layer = self.bottle_neck(current_layer)
@@ -885,9 +892,11 @@ class WaveletUNet(tf.keras.Model):
             
             # Apply inverse DWT
             current_layer = self.idwt_layers[block_name](current_layer)
+            tf.print("current_layer shape after idwt on layer ", block_name, ": ", tf.shape(current_layer))
             
             # Pre-skip connection processing
             current_layer = self.up_process_blocks[block_name](current_layer)
+            tf.print("current_layer shape after up process on layer ", block_name, ": ", tf.shape(current_layer))
             
             # Get skip connection from encoder
             skip_conn = enc_outputs[block_name]
@@ -910,12 +919,15 @@ class WaveletUNet(tf.keras.Model):
             
             # Apply enhanced skip connection
             current_layer = self.skip_connections[block_name]([current_layer, skip_conn])
+            tf.print("current_layer shape after skip connection on layer ", block_name, ": ", tf.shape(current_layer))
             
             # Post-skip connection processing
             current_layer = self.upsampling_blocks[block_name](current_layer)
+            tf.print("current_layer shape after upsampling on layer ", block_name, ": ", tf.shape(current_layer))
 
         # Final processing
         current_layer = self.final_conv(current_layer)
+        tf.print("current_layer shape after final conv: ", tf.shape(current_layer))
         
         # Ensure the final layer matches the input dimensions
         if current_layer.shape[1] != self.num_coeffs:
