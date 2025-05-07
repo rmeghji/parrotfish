@@ -17,10 +17,21 @@ from utils.config import Config
 
 config = Config()
 
+# @tf.function(jit_compile=True)
+# def gelu(x):
+#     """Gaussian Error Linear Unit activation function"""
+#     return 0.5 * x * (1.0 + tf.tanh(tf.sqrt(2.0 / np.pi) * (x + 0.044715 * tf.pow(x, 3))))
+
 @tf.function(jit_compile=True)
 def gelu(x):
-    """Gaussian Error Linear Unit activation function"""
-    return 0.5 * x * (1.0 + tf.tanh(tf.sqrt(2.0 / np.pi) * (x + 0.044715 * tf.pow(x, 3))))
+    """Gaussian Error Linear Unit activation function, mixed-precision compatible"""
+    # Cast constants to the dtype of x
+    c_0_5 = tf.constant(0.5, dtype=x.dtype)
+    c_1_0 = tf.constant(1.0, dtype=x.dtype)
+    c_sqrt_2_div_pi = tf.constant(tf.sqrt(2.0 / np.pi), dtype=x.dtype)
+    c_0_044715 = tf.constant(0.044715, dtype=x.dtype)
+    
+    return c_0_5 * x * (c_1_0 + tf.tanh(c_sqrt_2_div_pi * (x + c_0_044715 * tf.pow(x, 3))))
 
 @tf.keras.utils.register_keras_serializable()
 class DWTLayer(tf.keras.layers.Layer):
