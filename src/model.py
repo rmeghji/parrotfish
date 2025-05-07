@@ -847,6 +847,7 @@ class WaveletUNet(tf.keras.Model):
         super().build(input_shape)
         self.summary()
 
+    @tf.function(jit_compile=True, reduce_retracing=True)
     def call(self, inputs, training=True):
         # Initial processing
         current_layer = self.initial_conv(inputs)
@@ -895,7 +896,8 @@ class WaveletUNet(tf.keras.Model):
             if current_layer.shape[1] != skip_conn.shape[1]:
                 # diff = skip_conn.shape[1] - current_layer.shape[1]
                 diff = tf.shape(skip_conn)[1] - tf.shape(current_layer)[1]
-                if diff > 0:
+                # if diff > 0:
+                if tf.greater(diff, 0):
                     # Pad if skip connection is larger
                     pad_start = diff // 2
                     pad_end = diff - pad_start
