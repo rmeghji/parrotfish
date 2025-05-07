@@ -72,102 +72,102 @@ class DWTLayer(tf.keras.layers.Layer):
         
         super().build(input_shape)
     
-    # @tf.function(jit_compile=True)
-    # def call(self, inputs):
-    #     # Handle padding for odd length inputs
-    #     orig_shape = tf.shape(inputs)
-    #     need_padding = orig_shape[1] % 2 != 0
-        
-    #     # Add reflection padding for clean convolution
-    #     # if orig_shape[1] % 2 != 0:
-    #     #     inputs = tf.pad(inputs, [[0, 0], [0, 1], [0, 0]], mode='REFLECT')
-        
-    #     # Add boundary padding based on wavelet filter length
-    #     pad_size = self.filter_length - 1
-    #     padded_inputs = tf.pad(inputs, [[0, 0], [pad_size, pad_size], [0, 0]], mode='REFLECT')
-        
-    #     # Split channels and apply filtering to each
-    #     batch_size = tf.shape(inputs)[0]
-    #     approx_coeffs = []
-    #     detail_coeffs = []
-        
-    #     for c in range(self.channels):
-    #         channel_inputs = padded_inputs[:, :, c:c+1]
-            
-    #         # Apply low-pass filter (for approximation coefficients)
-    #         approx = tf.nn.conv1d(
-    #             channel_inputs,
-    #             self.dec_lo_filter,
-    #             stride=2,
-    #             padding='VALID'
-    #         )
-            
-    #         # Apply high-pass filter (for detail coefficients)
-    #         detail = tf.nn.conv1d(
-    #             channel_inputs,
-    #             self.dec_hi_filter,
-    #             stride=2,
-    #             padding='VALID'
-    #         )
-            
-    #         # Remove excess padding
-    #         approx = approx[:, (pad_size // 2):-(pad_size // 2) if pad_size > 1 else None, :]
-    #         detail = detail[:, (pad_size // 2):-(pad_size // 2) if pad_size > 1 else None, :]
-            
-    #         approx_coeffs.append(approx)
-    #         detail_coeffs.append(detail)
-        
-    #     # Concatenate all channels
-    #     if self.channels > 1:
-    #         approx_coeffs = tf.concat(approx_coeffs, axis=-1)
-    #         detail_coeffs = tf.concat(detail_coeffs, axis=-1)
-    #     else:
-    #         approx_coeffs = approx_coeffs[0]
-    #         detail_coeffs = detail_coeffs[0]
-        
-    #     # Concatenate approximation and detail coefficients along the channel axis
-    #     return tf.concat([approx_coeffs, detail_coeffs], axis=-1)
-
-    #### new optimization experiment
     @tf.function(jit_compile=True, reduce_retracing=True)
     def call(self, inputs):
         # Handle padding for odd length inputs
         orig_shape = tf.shape(inputs)
+        need_padding = orig_shape[1] % 2 != 0
+        
+        # Add reflection padding for clean convolution
+        # if orig_shape[1] % 2 != 0:
+        #     inputs = tf.pad(inputs, [[0, 0], [0, 1], [0, 0]], mode='REFLECT')
         
         # Add boundary padding based on wavelet filter length
         pad_size = self.filter_length - 1
         padded_inputs = tf.pad(inputs, [[0, 0], [pad_size, pad_size], [0, 0]], mode='REFLECT')
         
-        # Process all channels in parallel instead of looping
-        # Reshape to combine batch and channel dimensions
+        # Split channels and apply filtering to each
         batch_size = tf.shape(inputs)[0]
-        reshaped_inputs = tf.reshape(padded_inputs, [batch_size * self.channels, -1, 1])
+        approx_coeffs = []
+        detail_coeffs = []
         
-        # Apply filters to all channels at once
-        approx = tf.nn.conv1d(
-            reshaped_inputs,
-            self.dec_lo_filter,
-            stride=2,
-            padding='VALID'
-        )
+        for c in range(self.channels):
+            channel_inputs = padded_inputs[:, :, c:c+1]
+            
+            # Apply low-pass filter (for approximation coefficients)
+            approx = tf.nn.conv1d(
+                channel_inputs,
+                self.dec_lo_filter,
+                stride=2,
+                padding='VALID'
+            )
+            
+            # Apply high-pass filter (for detail coefficients)
+            detail = tf.nn.conv1d(
+                channel_inputs,
+                self.dec_hi_filter,
+                stride=2,
+                padding='VALID'
+            )
+            
+            # Remove excess padding
+            approx = approx[:, (pad_size // 2):-(pad_size // 2) if pad_size > 1 else None, :]
+            detail = detail[:, (pad_size // 2):-(pad_size // 2) if pad_size > 1 else None, :]
+            
+            approx_coeffs.append(approx)
+            detail_coeffs.append(detail)
         
-        detail = tf.nn.conv1d(
-            reshaped_inputs,
-            self.dec_hi_filter,
-            stride=2,
-            padding='VALID'
-        )
+        # Concatenate all channels
+        if self.channels > 1:
+            approx_coeffs = tf.concat(approx_coeffs, axis=-1)
+            detail_coeffs = tf.concat(detail_coeffs, axis=-1)
+        else:
+            approx_coeffs = approx_coeffs[0]
+            detail_coeffs = detail_coeffs[0]
         
-        # Remove excess padding
-        approx = approx[:, (pad_size // 2):-(pad_size // 2) if pad_size > 1 else None, :]
-        detail = detail[:, (pad_size // 2):-(pad_size // 2) if pad_size > 1 else None, :]
+        # Concatenate approximation and detail coefficients along the channel axis
+        return tf.concat([approx_coeffs, detail_coeffs], axis=-1)
+
+    #### new optimization experiment
+    # @tf.function(jit_compile=True, reduce_retracing=True)
+    # def call(self, inputs):
+    #     # Handle padding for odd length inputs
+    #     orig_shape = tf.shape(inputs)
         
-        # Reshape back to separate batch and channel dimensions
-        approx = tf.reshape(approx, [batch_size, -1, self.channels])
-        detail = tf.reshape(detail, [batch_size, -1, self.channels])
+    #     # Add boundary padding based on wavelet filter length
+    #     pad_size = self.filter_length - 1
+    #     padded_inputs = tf.pad(inputs, [[0, 0], [pad_size, pad_size], [0, 0]], mode='REFLECT')
         
-        # Concatenate along the channel axis
-        return tf.concat([approx, detail], axis=-1)
+    #     # Process all channels in parallel instead of looping
+    #     # Reshape to combine batch and channel dimensions
+    #     batch_size = tf.shape(inputs)[0]
+    #     reshaped_inputs = tf.reshape(padded_inputs, [batch_size * self.channels, -1, 1])
+        
+    #     # Apply filters to all channels at once
+    #     approx = tf.nn.conv1d(
+    #         reshaped_inputs,
+    #         self.dec_lo_filter,
+    #         stride=2,
+    #         padding='VALID'
+    #     )
+        
+    #     detail = tf.nn.conv1d(
+    #         reshaped_inputs,
+    #         self.dec_hi_filter,
+    #         stride=2,
+    #         padding='VALID'
+    #     )
+        
+    #     # Remove excess padding
+    #     approx = approx[:, (pad_size // 2):-(pad_size // 2) if pad_size > 1 else None, :]
+    #     detail = detail[:, (pad_size // 2):-(pad_size // 2) if pad_size > 1 else None, :]
+        
+    #     # Reshape back to separate batch and channel dimensions
+    #     approx = tf.reshape(approx, [batch_size, -1, self.channels])
+    #     detail = tf.reshape(detail, [batch_size, -1, self.channels])
+        
+    #     # Concatenate along the channel axis
+    #     return tf.concat([approx, detail], axis=-1)
     
     def get_config(self):
         config = super().get_config()
