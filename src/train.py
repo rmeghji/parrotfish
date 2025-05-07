@@ -85,7 +85,7 @@ def get_callbacks(save_directory):
 def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_speakers=config.MAX_SOURCES):
     """Main function to run the audio source separation pipeline"""    
     tf.config.optimizer.set_jit(True)
-    tf.keras.mixed_precision.set_global_policy('mixed_float16')
+    # tf.keras.mixed_precision.set_global_policy('mixed_float16')
     for device in tf.config.list_physical_devices('GPU'):
         try:
             tf.config.experimental.set_memory_growth(device, True)

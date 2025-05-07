@@ -17,22 +17,22 @@ from utils.config import Config
 
 config = Config()
 
-# @tf.function(jit_compile=True)
-# def gelu(x):
-#     """Gaussian Error Linear Unit activation function"""
-#     return 0.5 * x * (1.0 + tf.tanh(tf.sqrt(2.0 / np.pi) * (x + 0.044715 * tf.pow(x, 3))))
-
 @tf.function(jit_compile=True, reduce_retracing=True)
 def gelu(x):
-    """Gaussian Error Linear Unit activation function, mixed-precision compatible"""
-    # x_dtype = x.dtype
-    x_dtype = tf.float16
-    sqrt_2_over_pi = tf.cast(tf.constant(np.sqrt(2.0 / np.pi), dtype=tf.float32), dtype=x_dtype)
-    gelu_coefficient = tf.cast(tf.constant(0.044715, dtype=tf.float32), dtype=x_dtype)
-    const_0_5 = tf.cast(0.5, dtype=x_dtype)
-    const_1_0 = tf.cast(1.0, dtype=x_dtype)
+    """Gaussian Error Linear Unit activation function"""
+    return 0.5 * x * (1.0 + tf.tanh(tf.sqrt(2.0 / np.pi) * (x + 0.044715 * tf.pow(x, 3))))
 
-    return const_0_5 * x * (const_1_0 + tf.tanh(sqrt_2_over_pi * (x + gelu_coefficient * tf.pow(x, 3))))
+# @tf.function(jit_compile=True, reduce_retracing=True)
+# def gelu(x):
+#     """Gaussian Error Linear Unit activation function, mixed-precision compatible"""
+#     # x_dtype = x.dtype
+#     x_dtype = tf.float16
+#     sqrt_2_over_pi = tf.cast(tf.constant(np.sqrt(2.0 / np.pi), dtype=tf.float32), dtype=x_dtype)
+#     gelu_coefficient = tf.cast(tf.constant(0.044715, dtype=tf.float32), dtype=x_dtype)
+#     const_0_5 = tf.cast(0.5, dtype=x_dtype)
+#     const_1_0 = tf.cast(1.0, dtype=x_dtype)
+
+#     return const_0_5 * x * (const_1_0 + tf.tanh(sqrt_2_over_pi * (x + gelu_coefficient * tf.pow(x, 3))))
 
 @tf.keras.utils.register_keras_serializable()
 class DWTLayer(tf.keras.layers.Layer):
