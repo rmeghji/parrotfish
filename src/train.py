@@ -24,6 +24,7 @@ from model import (
     UpsamplingLayer,
     GatedSkipConnection,
 )
+from main import save_model, plot_model
 
 config = Config()
 
@@ -83,6 +84,20 @@ def get_callbacks(save_directory):
 
 def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_speakers=config.MAX_SOURCES):
     """Main function to run the audio source separation pipeline"""    
+    tf.config.optimizer.set_jit(True)
+    tf.keras.mixed_precision.set_global_policy('mixed_float16')
+    for device in tf.config.list_physical_devices('GPU'):
+        try:
+            tf.config.experimental.set_memory_growth(device, True)
+            print(f"Memory growth enabled for {device}")
+        except RuntimeError as e:
+            # Memory growth must be set before GPUs have been initialized
+            print(f"Error setting memory growth: {e}")  
+    
+    # Set thread optimizations
+    tf.config.threading.set_inter_op_parallelism_threads(2)
+    tf.config.threading.set_intra_op_parallelism_threads(2)
+    
     print("Starting audio source separation pipeline...")
 
     if clips_dir and not tfrecords_dir:
@@ -154,7 +169,8 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_spe
     model.compile(
         optimizer=optimizer,
         loss=pit_loss,
-        metrics=['mse']
+        metrics=['mse'],
+        jit_compile=True
     )
     
     model.summary()

@@ -218,13 +218,86 @@ def create_tf_dataset(base_dir, clips_dir, num_speakers, batch_size=32, wavelet_
 
     return dataset.prefetch(tf.data.AUTOTUNE)
 
-def create_tf_dataset_from_tfrecords(tfrecord_files, num_speakers, batch_size=32, is_train=True):
+# def create_tf_dataset_from_tfrecords(tfrecord_files, num_speakers, batch_size=32, is_train=True):
+#     """Create a TensorFlow dataset from TFRecord files containing audio data
+    
+#     Args:
+#         tfrecord_files: List of TFRecord files
+#         num_speakers: Number of speakers to mix
+#         batch_size: Batch size for training
+#         is_train: Whether to use training-specific logic
+        
+#     Returns:
+#         tf.data.Dataset: Dataset that yields (mixed_audio, separated_audio) pairs
+#     """
+    
+#     samples_per_clip = 16000
+    
+#     def _parse_tfrecord(example_proto):
+#         feature_description = {
+#             'audio_binary': tf.io.FixedLenFeature([], tf.string),
+#             'path': tf.io.FixedLenFeature([], tf.string)
+#         }
+#         parsed_features = tf.io.parse_single_example(example_proto, feature_description)
+#         audio_tensor = tf.audio.decode_wav(parsed_features['audio_binary'])
+#         waveform = audio_tensor.audio
+#         current_length = tf.shape(waveform)[0]
+        
+#         if current_length < samples_per_clip:
+#             padding = [[0, samples_per_clip - current_length], [0, 0]]
+#             waveform = tf.pad(waveform, padding)
+#         else:
+#             waveform = waveform[:samples_per_clip]
+        
+#         waveform = tf.reshape(waveform, (samples_per_clip, 1))
+        
+#         return waveform
+
+#     def _prepare_batch(waveforms):
+#         batch_size = tf.shape(waveforms)[0]
+        
+#         mixed_audio = tf.zeros((batch_size, samples_per_clip, 1), dtype=tf.float32)
+#         separated_audio = tf.zeros((batch_size, num_speakers, samples_per_clip, 1), dtype=tf.float32)
+        
+#         weights = tf.random.uniform((batch_size, num_speakers), minval=0.5, maxval=1.5)
+#         weights = weights / tf.reduce_sum(weights, axis=1, keepdims=True)
+        
+#         for i in range(num_speakers):
+#             indices = tf.random.uniform((batch_size,), 0, batch_size, dtype=tf.int32)
+#             selected_waveforms = tf.gather(waveforms, indices)
+            
+#             batch_weights = tf.reshape(weights[:, i], (batch_size, 1, 1))
+#             weighted_waveforms = selected_waveforms * batch_weights
+            
+#             mixed_audio += weighted_waveforms
+#             separated_audio = tf.tensor_scatter_nd_update(
+#                 separated_audio,
+#                 tf.stack([tf.range(batch_size), tf.fill((batch_size,), i)], axis=1),
+#                 weighted_waveforms
+#             )
+        
+#         return mixed_audio, separated_audio
+
+#     dataset = tf.data.TFRecordDataset(tfrecord_files, compression_type='GZIP', num_parallel_reads=tf.data.AUTOTUNE)
+#     dataset = dataset.map(_parse_tfrecord, num_parallel_calls=tf.data.AUTOTUNE)
+#     dataset = dataset.cache()
+#     if is_train:
+#         dataset = dataset.repeat()
+#         dataset = dataset.shuffle(buffer_size=30000)
+#     dataset = dataset.batch(batch_size)
+#     dataset = dataset.map(_prepare_batch, num_parallel_calls=tf.data.AUTOTUNE)
+#     dataset = dataset.prefetch(tf.data.AUTOTUNE)
+    
+#     return dataset
+
+def create_tf_dataset_from_tfrecords(tfrecord_files, num_speakers, batch_size=128, is_train=True):
     """Create a TensorFlow dataset from TFRecord files containing audio data
+    Optimized for GPU execution on A100
     
     Args:
         tfrecord_files: List of TFRecord files
         num_speakers: Number of speakers to mix
-        batch_size: Batch size for training
+        batch_size: Batch size for training (increased for A100)
         is_train: Whether to use training-specific logic
         
     Returns:
@@ -233,7 +306,18 @@ def create_tf_dataset_from_tfrecords(tfrecord_files, num_speakers, batch_size=32
     
     samples_per_clip = 16000
     
+    # Set dataset options for optimal performance
+    options = tf.data.Options()
+    options.experimental_optimization.map_parallelization = True
+    options.experimental_optimization.map_fusion = True
+    options.experimental_optimization.parallel_batch = True
+    options.threading.max_intra_op_parallelism = 8
+    options.threading.private_threadpool_size = 32
+    options.experimental_deterministic = False  # Allow non-deterministic ordering for better performance
+    
+    @tf.function(jit_compile=True)  # Enable XLA compilation
     def _parse_tfrecord(example_proto):
+        """Parse a single TFRecord example with GPU acceleration"""
         feature_description = {
             'audio_binary': tf.io.FixedLenFeature([], tf.string),
             'path': tf.io.FixedLenFeature([], tf.string)
@@ -243,49 +327,93 @@ def create_tf_dataset_from_tfrecords(tfrecord_files, num_speakers, batch_size=32
         waveform = audio_tensor.audio
         current_length = tf.shape(waveform)[0]
         
-        if current_length < samples_per_clip:
+        # Use tf.cond instead of Python if/else for GPU execution
+        def pad_waveform():
             padding = [[0, samples_per_clip - current_length], [0, 0]]
-            waveform = tf.pad(waveform, padding)
-        else:
-            waveform = waveform[:samples_per_clip]
+            return tf.pad(waveform, padding)
         
-        waveform = tf.reshape(waveform, (samples_per_clip, 1))
+        def trim_waveform():
+            return waveform[:samples_per_clip]
         
-        return waveform
+        waveform = tf.cond(
+            current_length < samples_per_clip,
+            pad_waveform,
+            trim_waveform
+        )
+        
+        # Ensure proper shape
+        return tf.reshape(waveform, (samples_per_clip, 1))
 
+    @tf.function(jit_compile=True)  # Enable XLA compilation
     def _prepare_batch(waveforms):
+        """Prepare a batch of waveforms with GPU acceleration"""
         batch_size = tf.shape(waveforms)[0]
         
+        # Pre-allocate output tensors
         mixed_audio = tf.zeros((batch_size, samples_per_clip, 1), dtype=tf.float32)
         separated_audio = tf.zeros((batch_size, num_speakers, samples_per_clip, 1), dtype=tf.float32)
         
+        # Generate mixing weights
         weights = tf.random.uniform((batch_size, num_speakers), minval=0.5, maxval=1.5)
         weights = weights / tf.reduce_sum(weights, axis=1, keepdims=True)
         
+        # Generate all indices at once for better vectorization
+        all_indices = tf.random.uniform((batch_size, num_speakers), 0, batch_size, dtype=tf.int32)
+        
+        # Process all speakers in a vectorized way where possible
         for i in range(num_speakers):
-            indices = tf.random.uniform((batch_size,), 0, batch_size, dtype=tf.int32)
+            # Extract indices for current speaker
+            indices = all_indices[:, i]
+            
+            # Gather waveforms for this speaker
             selected_waveforms = tf.gather(waveforms, indices)
             
+            # Apply weights
             batch_weights = tf.reshape(weights[:, i], (batch_size, 1, 1))
             weighted_waveforms = selected_waveforms * batch_weights
             
+            # Add to mixed audio
             mixed_audio += weighted_waveforms
+            
+            # Update separated audio tensor
+            update_indices = tf.stack([tf.range(batch_size), tf.fill((batch_size,), i)], axis=1)
             separated_audio = tf.tensor_scatter_nd_update(
                 separated_audio,
-                tf.stack([tf.range(batch_size), tf.fill((batch_size,), i)], axis=1),
+                update_indices,
                 weighted_waveforms
             )
         
         return mixed_audio, separated_audio
 
-    dataset = tf.data.TFRecordDataset(tfrecord_files, compression_type='GZIP', num_parallel_reads=tf.data.AUTOTUNE)
+    # Create dataset with optimized settings
+    dataset = tf.data.TFRecordDataset(
+        tfrecord_files, 
+        compression_type='GZIP', 
+        num_parallel_reads=tf.data.AUTOTUNE,
+        buffer_size=16 * 1024 * 1024  # 16MB buffer for better throughput
+    )
+    
+    # Apply options
+    dataset = dataset.with_options(options)
+    
+    # Parse records in parallel
     dataset = dataset.map(_parse_tfrecord, num_parallel_calls=tf.data.AUTOTUNE)
+    
+    # Cache after parsing to avoid repeated decoding
     dataset = dataset.cache()
+    
     if is_train:
+        # Use larger shuffle buffer for A100
+        dataset = dataset.shuffle(buffer_size=50000)
         dataset = dataset.repeat()
-        dataset = dataset.shuffle(buffer_size=30000)
+    
+    # Use larger batch size for A100
     dataset = dataset.batch(batch_size)
+    
+    # Apply batch processing with GPU acceleration
     dataset = dataset.map(_prepare_batch, num_parallel_calls=tf.data.AUTOTUNE)
+    
+    # Prefetch to overlap processing and training
     dataset = dataset.prefetch(tf.data.AUTOTUNE)
     
     return dataset

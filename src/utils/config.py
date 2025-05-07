@@ -9,7 +9,7 @@ class Config:
     # Model settings
     NUM_COEFFS = 16000  # 1 second at 16kHz
     WAVELET_DEPTH = 5
-    BATCH_SIZE = 32 # 16-32
+    BATCH_SIZE = 64 # 16-32
     CHANNELS = 1  # Mono audio
     NUM_LAYERS = 11 # 10-12
     NUM_INIT_FILTERS = 32 ## was 24
