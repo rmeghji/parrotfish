@@ -17,12 +17,12 @@ from utils.config import Config
 
 config = Config()
 
-# @tf.function(jit_compile=True)
+# @tf.function(jit_compile=True, reduce_retracing=True)
 # def gelu(x):
 #     """Gaussian Error Linear Unit activation function"""
 #     return 0.5 * x * (1.0 + tf.tanh(tf.sqrt(2.0 / np.pi) * (x + 0.044715 * tf.pow(x, 3))))
 
-@tf.function(jit_compile=True)
+@tf.function(jit_compile=True, reduce_retracing=True)
 def gelu(x):
     """Gaussian Error Linear Unit activation function, mixed-precision compatible"""
     x_dtype = x.dtype
@@ -71,7 +71,7 @@ class DWTLayer(tf.keras.layers.Layer):
         
         super().build(input_shape)
     
-    # @tf.function(jit_compile=True)
+    # @tf.function(jit_compile=True, reduce_retracing=True)
     # def call(self, inputs):
     #     # Handle padding for odd length inputs
     #     orig_shape = tf.shape(inputs)
@@ -128,7 +128,7 @@ class DWTLayer(tf.keras.layers.Layer):
     #     return tf.concat([approx_coeffs, detail_coeffs], axis=-1)
 
     #### new optimization experiment
-    @tf.function(jit_compile=True)
+    @tf.function(jit_compile=True, reduce_retracing=True)
     def call(self, inputs):
         # Handle padding for odd length inputs
         orig_shape = tf.shape(inputs)
@@ -211,7 +211,7 @@ class IDWTLayer(tf.keras.layers.Layer):
         
         super().build(input_shape)
     
-    # @tf.function(jit_compile=True)
+    # @tf.function(jit_compile=True, reduce_retracing=True)
     # def call(self, inputs):
     #     # Split the channels into approximation and detail coefficients
     #     approx_coeffs = inputs[:, :, :self.in_channels]
@@ -258,7 +258,7 @@ class IDWTLayer(tf.keras.layers.Layer):
     #     return output
 
     ##### ORIGINAL
-    # @tf.function(jit_compile=True)
+    # @tf.function(jit_compile=True, reduce_retracing=True)
     # def _upsample(self, x):
     #     """Vectorized upsampling without loops"""
     #     batch_size = tf.shape(x)[0]
@@ -273,7 +273,7 @@ class IDWTLayer(tf.keras.layers.Layer):
     #     return tf.tensor_scatter_nd_update(output, indices, updates)
 
     # #### new optimization experiment
-    # @tf.function(jit_compile=True)
+    # @tf.function(jit_compile=True, reduce_retracing=True)
     # def call(self, inputs):
     #     # Split the channels into approximation and detail coefficients
     #     approx_coeffs = inputs[:, :, :self.in_channels]
@@ -302,7 +302,7 @@ class IDWTLayer(tf.keras.layers.Layer):
     #     # Combine approximation and detail for reconstruction
     #     return approx_recon + detail_recon
 
-    @tf.function(jit_compile=True)
+    @tf.function(jit_compile=True, reduce_retracing=True)
     def _upsample(self, x):
         """Vectorized upsampling without loops"""
         batch_size = tf.shape(x)[0]
@@ -329,7 +329,7 @@ class IDWTLayer(tf.keras.layers.Layer):
         return tf.tensor_scatter_nd_update(output, indices, updates)
 
 
-    @tf.function(jit_compile=True)
+    @tf.function(jit_compile=True, reduce_retracing=True)
     def call(self, inputs):
         # inputs shape: (batch_size, seq_len, self.in_channels * 2)
         approx_coeffs = inputs[:, :, :self.in_channels]  # (batch_size, seq_len, self.in_channels)
@@ -420,7 +420,7 @@ class DownsamplingLayer(tf.keras.layers.Layer):
         
         super().build(input_shape)
 
-    @tf.function(jit_compile=True)
+    @tf.function(jit_compile=True, reduce_retracing=True)
     def call(self, inputs):
         # Residual connection
         if self.input_proj is not None:
@@ -522,7 +522,7 @@ class UpsamplingLayer(tf.keras.layers.Layer):
         
         super().build(input_shape)
 
-    @tf.function(jit_compile=True)
+    @tf.function(jit_compile=True, reduce_retracing=True)
     def call(self, inputs):
         # Split into approximation and detail coefficients
         half_channels = self.input_channels // 2
@@ -609,7 +609,7 @@ class GatedSkipConnection(tf.keras.layers.Layer):
         
         super().build(input_shape)
 
-    @tf.function(jit_compile=True)
+    @tf.function(jit_compile=True, reduce_retracing=True)
     def call(self, inputs):
         # Unpack inputs
         decoder_features, encoder_features = inputs
