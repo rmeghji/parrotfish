@@ -259,19 +259,19 @@ class IDWTLayer(tf.keras.layers.Layer):
     #     return output
 
     ##### ORIGINAL
-    # @tf.function(jit_compile=True)
-    # def _upsample(self, x):
-    #     """Vectorized upsampling without loops"""
-    #     batch_size = tf.shape(x)[0]
-    #     seq_len = tf.shape(x)[1]
-    #     channels = tf.shape(x)[2]
-    #     output = tf.zeros([batch_size, seq_len*2, channels], dtype=x.dtype)
-    #     batch_indices = tf.repeat(tf.range(batch_size), seq_len)
-    #     seq_indices = tf.tile(tf.range(0, seq_len*2, 2), [batch_size])
-    #     indices = tf.stack([batch_indices, seq_indices], axis=1)
-    #     updates = tf.reshape(x, [-1, channels])
+    @tf.function(jit_compile=True, reduce_retracing=True)
+    def _upsample(self, x):
+        """Vectorized upsampling without loops"""
+        batch_size = tf.shape(x)[0]
+        seq_len = tf.shape(x)[1]
+        channels = tf.shape(x)[2]
+        output = tf.zeros([batch_size, seq_len*2, channels], dtype=x.dtype)
+        batch_indices = tf.repeat(tf.range(batch_size), seq_len)
+        seq_indices = tf.tile(tf.range(0, seq_len*2, 2), [batch_size])
+        indices = tf.stack([batch_indices, seq_indices], axis=1)
+        updates = tf.reshape(x, [-1, channels])
 
-    #     return tf.tensor_scatter_nd_update(output, indices, updates)
+        return tf.tensor_scatter_nd_update(output, indices, updates)
 
     # #### new optimization experiment
     # @tf.function(jit_compile=True)
@@ -303,31 +303,32 @@ class IDWTLayer(tf.keras.layers.Layer):
     #     # Combine approximation and detail for reconstruction
     #     return approx_recon + detail_recon
 
-    @tf.function(jit_compile=True, reduce_retracing=True)
-    def _upsample(self, x):
-        """Vectorized upsampling without loops"""
-        batch_size = tf.shape(x)[0]
-        seq_len = tf.shape(x)[1]
-        channels = tf.shape(x)[2]
-        output = tf.zeros([batch_size, seq_len * 2, channels], dtype=x.dtype)
+    # horseshit maybe
+    # @tf.function(jit_compile=True, reduce_retracing=True)
+    # def _upsample(self, x):
+    #     """Vectorized upsampling without loops"""
+    #     batch_size = tf.shape(x)[0]
+    #     seq_len = tf.shape(x)[1]
+    #     channels = tf.shape(x)[2]
+    #     output = tf.zeros([batch_size, seq_len * 2, channels], dtype=x.dtype)
         
-        # Create indices for even positions
-        # For scatter_nd, indices should be a 2D tensor where each row is an index
-        idx_batch = tf.range(batch_size)
-        idx_batch = tf.expand_dims(idx_batch, axis=1) # Shape: [batch_size, 1]
-        idx_batch = tf.tile(idx_batch, [1, seq_len])   # Shape: [batch_size, seq_len]
-        idx_batch_flat = tf.reshape(idx_batch, [-1])  # Shape: [batch_size * seq_len]
+    #     # Create indices for even positions
+    #     # For scatter_nd, indices should be a 2D tensor where each row is an index
+    #     idx_batch = tf.range(batch_size)
+    #     idx_batch = tf.expand_dims(idx_batch, axis=1) # Shape: [batch_size, 1]
+    #     idx_batch = tf.tile(idx_batch, [1, seq_len])   # Shape: [batch_size, seq_len]
+    #     idx_batch_flat = tf.reshape(idx_batch, [-1])  # Shape: [batch_size * seq_len]
 
-        idx_seq = tf.range(0, seq_len * 2, 2)       # Shape: [seq_len]
-        idx_seq = tf.expand_dims(idx_seq, axis=0)   # Shape: [1, seq_len]
-        idx_seq = tf.tile(idx_seq, [batch_size, 1]) # Shape: [batch_size, seq_len]
-        idx_seq_flat = tf.reshape(idx_seq, [-1])    # Shape: [batch_size * seq_len]
+    #     idx_seq = tf.range(0, seq_len * 2, 2)       # Shape: [seq_len]
+    #     idx_seq = tf.expand_dims(idx_seq, axis=0)   # Shape: [1, seq_len]
+    #     idx_seq = tf.tile(idx_seq, [batch_size, 1]) # Shape: [batch_size, seq_len]
+    #     idx_seq_flat = tf.reshape(idx_seq, [-1])    # Shape: [batch_size * seq_len]
 
-        indices = tf.stack([idx_batch_flat, idx_seq_flat], axis=1) # Shape: [batch_size * seq_len, 2]
+    #     indices = tf.stack([idx_batch_flat, idx_seq_flat], axis=1) # Shape: [batch_size * seq_len, 2]
         
-        updates = tf.reshape(x, [-1, channels]) # Shape: [batch_size * seq_len, channels]
+    #     updates = tf.reshape(x, [-1, channels]) # Shape: [batch_size * seq_len, channels]
 
-        return tf.tensor_scatter_nd_update(output, indices, updates)
+    #     return tf.tensor_scatter_nd_update(output, indices, updates)
 
 
     @tf.function(jit_compile=True, reduce_retracing=True)
