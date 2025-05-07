@@ -420,6 +420,7 @@ class DownsamplingLayer(tf.keras.layers.Layer):
         
         super().build(input_shape)
 
+    @tf.function(jit_compile=True)
     def call(self, inputs):
         # Residual connection
         if self.input_proj is not None:
@@ -521,6 +522,7 @@ class UpsamplingLayer(tf.keras.layers.Layer):
         
         super().build(input_shape)
 
+    @tf.function(jit_compile=True)
     def call(self, inputs):
         # Split into approximation and detail coefficients
         half_channels = self.input_channels // 2
@@ -885,44 +887,79 @@ class WaveletUNet(tf.keras.Model):
             # Pre-skip connection processing
             current_layer = self.up_process_blocks[block_name](current_layer)
             
+            ############### replacing with some shit
             # Get skip connection from encoder
-            skip_conn = enc_outputs[block_name]
+        #     skip_conn = enc_outputs[block_name]
             
-            # Match dimensions if needed
-            if current_layer.shape[1] != skip_conn.shape[1]:
-                diff = skip_conn.shape[1] - current_layer.shape[1]
-                if diff > 0:
-                    # Pad if skip connection is larger
-                    pad_start = diff // 2
-                    pad_end = diff - pad_start
-                    current_layer = tf.pad(current_layer, [[0, 0], [pad_start, pad_end], [0, 0]], mode='SYMMETRIC')
-                else:
-                    # Crop if current layer is larger
-                    diff = -diff
-                    crop_start = diff // 2
-                    current_layer = tf.slice(current_layer, [0, crop_start, 0], [-1, skip_conn.shape[1], -1])
+        #     # Match dimensions if needed
+        #     if current_layer.shape[1] != skip_conn.shape[1]:
+        #         diff = skip_conn.shape[1] - current_layer.shape[1]
+        #         if diff > 0:
+        #             # Pad if skip connection is larger
+        #             pad_start = diff // 2
+        #             pad_end = diff - pad_start
+        #             current_layer = tf.pad(current_layer, [[0, 0], [pad_start, pad_end], [0, 0]], mode='SYMMETRIC')
+        #         else:
+        #             # Crop if current layer is larger
+        #             diff = -diff
+        #             crop_start = diff // 2
+        #             current_layer = tf.slice(current_layer, [0, crop_start, 0], [-1, skip_conn.shape[1], -1])
             
-            # Apply enhanced skip connection
-            current_layer = self.skip_connections[block_name]([current_layer, skip_conn])
+        #     # Apply enhanced skip connection
+        #     current_layer = self.skip_connections[block_name]([current_layer, skip_conn])
             
-            # Post-skip connection processing
-            current_layer = self.upsampling_blocks[block_name](current_layer)
+        #     # Post-skip connection processing
+        #     current_layer = self.upsampling_blocks[block_name](current_layer)
 
-        # Final processing
-        current_layer = self.final_conv(current_layer)
+        # # Final processing
+        # current_layer = self.final_conv(current_layer)
         
-        # Ensure the final layer matches the input dimensions
-        if current_layer.shape[1] != self.num_coeffs:
-            diff = self.num_coeffs - current_layer.shape[1]
-            if diff > 0:
+        # # Ensure the final layer matches the input dimensions
+        # if current_layer.shape[1] != self.num_coeffs:
+        #     diff = self.num_coeffs - current_layer.shape[1]
+        #     if diff > 0:
+        #         pad_start = diff // 2
+        #         pad_end = diff - pad_start
+        #         current_layer = tf.pad(current_layer, [[0, 0], [pad_start, pad_end], [0, 0]], mode='SYMMETRIC')
+        #     else:
+        #         diff = -diff
+        #         crop_start = diff // 2
+        #         current_layer = tf.slice(current_layer, [0, crop_start, 0], [-1, self.num_coeffs, -1])
+        ######### end
+
+##### begin new shit
+
+        # Get skip connection from encoder
+        skip_conn = enc_outputs[block_name] # Or enc_outputs.read(...)
+
+        # Match dimensions if needed
+        # Use tf.shape() for dynamic dimension sizes
+        current_layer_seq_len = tf.shape(current_layer)[1]
+        skip_conn_seq_len = tf.shape(skip_conn)[1]
+
+        # This condition will now compare two tensors or a tensor and an int,
+        # which TensorFlow handles.
+        if tf.not_equal(current_layer_seq_len, skip_conn_seq_len):
+            diff = skip_conn_seq_len - current_layer_seq_len # This is now a tf subtraction
+
+            # The rest of your padding/cropping logic uses `diff` which is now a tensor.
+            # Your tf.pad and tf.slice operations should work fine with tensor inputs for padding/cropping amounts.
+            if tf.greater(diff, 0): # diff > 0
+                # Pad if skip connection is larger
                 pad_start = diff // 2
                 pad_end = diff - pad_start
                 current_layer = tf.pad(current_layer, [[0, 0], [pad_start, pad_end], [0, 0]], mode='SYMMETRIC')
-            else:
-                diff = -diff
-                crop_start = diff // 2
-                current_layer = tf.slice(current_layer, [0, crop_start, 0], [-1, self.num_coeffs, -1])
+            else: # diff <= 0 (means current_layer is larger or equal, but we only care if larger)
+                # Crop if current layer is larger
+                # Note: if diff is 0, this branch is not taken due to the outer if.
+                # If diff is negative, it means current_layer is larger.
+                abs_diff = -diff # or tf.abs(diff)
+                crop_start = abs_diff // 2
+                # For tf.slice, size needs to be skip_conn_seq_len
+                current_layer = tf.slice(current_layer, [0, crop_start, 0], [-1, skip_conn_seq_len, -1])
 
+###### end new shit that is replacing it
+        
         # Concatenate with input mixture
         current_layer = tf.concat([full_mix, current_layer], axis=-1)
         
