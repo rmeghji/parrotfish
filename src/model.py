@@ -204,6 +204,7 @@ class IDWTLayer(tf.keras.layers.Layer):
         
         return output
 
+    @tf.function(jit_compile=True, reduce_retracing=True)
     def _upsample(self, x):
         """Vectorized upsampling without loops"""
         batch_size = tf.shape(x)[0]
