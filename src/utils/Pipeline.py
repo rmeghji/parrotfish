@@ -315,7 +315,7 @@ def create_tf_dataset_from_tfrecords(tfrecord_files, num_speakers, batch_size=12
     options.threading.private_threadpool_size = 32
     options.experimental_deterministic = False  # Allow non-deterministic ordering for better performance
     
-    @tf.function(jit_compile=True)  # Enable XLA compilation
+    # @tf.function(jit_compile=True)  # Enable XLA compilation
     def _parse_tfrecord(example_proto):
         """Parse a single TFRecord example with GPU acceleration"""
         feature_description = {
