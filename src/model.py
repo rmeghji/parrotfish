@@ -893,7 +893,8 @@ class WaveletUNet(tf.keras.Model):
             
             # Match dimensions if needed
             if current_layer.shape[1] != skip_conn.shape[1]:
-                diff = skip_conn.shape[1] - current_layer.shape[1]
+                # diff = skip_conn.shape[1] - current_layer.shape[1]
+                diff = tf.shape(skip_conn)[1] - tf.shape(current_layer)[1]
                 if diff > 0:
                     # Pad if skip connection is larger
                     pad_start = diff // 2
