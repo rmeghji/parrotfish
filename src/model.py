@@ -25,7 +25,8 @@ config = Config()
 @tf.function(jit_compile=True, reduce_retracing=True)
 def gelu(x):
     """Gaussian Error Linear Unit activation function, mixed-precision compatible"""
-    x_dtype = x.dtype
+    # x_dtype = x.dtype
+    x_dtype = tf.float16
     sqrt_2_over_pi = tf.cast(tf.constant(np.sqrt(2.0 / np.pi), dtype=tf.float32), dtype=x_dtype)
     gelu_coefficient = tf.cast(tf.constant(0.044715, dtype=tf.float32), dtype=x_dtype)
     const_0_5 = tf.cast(0.5, dtype=x_dtype)
