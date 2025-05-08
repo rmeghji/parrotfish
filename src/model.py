@@ -676,7 +676,8 @@ class WaveletUNet(tf.keras.Model):
             filters=1,  # Match the number of channels in mixture (typically 1 or 2)
             kernel_size=1,         # 1x1 convolution for projection
             padding='same',
-            activation=None        # Linear projection
+            activation=None,        # Linear projection
+            name='source_projection'
         )
         
         # Output layer for each source
