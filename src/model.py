@@ -672,6 +672,13 @@ class WaveletUNet(tf.keras.Model):
             tf.keras.layers.Lambda(gelu)
         ])
         
+        self.source_projection = tf.keras.layers.Conv1D(
+            filters=1,  # Match the number of channels in mixture (typically 1 or 2)
+            kernel_size=1,         # 1x1 convolution for projection
+            padding='same',
+            activation=None        # Linear projection
+        )
+        
         # Output layer for each source
         self.output_convs = []
         for i in range(self.max_sources):
@@ -684,6 +691,8 @@ class WaveletUNet(tf.keras.Model):
                     name=f'output_conv_{i}'
                 )
             )
+            
+        
             
         super().build(input_shape)
         self.summary()
@@ -767,16 +776,31 @@ class WaveletUNet(tf.keras.Model):
                 crop_start = diff // 2
                 current_layer = tf.slice(current_layer, [0, crop_start, 0], [-1, self.num_coeffs, -1])
 
-        # Concatenate with input mixture
-        current_layer = tf.concat([full_mix, current_layer], axis=-1)
+        base_features = tf.concat([full_mix, current_layer], axis=-1)
         
-        # Generate separate outputs for each source
+        # Generate separate outputs for each source using residual connections
         outputs = []
-        for i in range(self.max_sources):
-            outputs.append(self.output_convs[i](current_layer))
         
+        # First source extraction - this takes base_features which has shape (batch_size, 16000, 32)
+        # and outputs shape (batch_size, 16000, num_channels)
+        first_source = self.output_convs[0](base_features)
+        outputs.append(first_source)
+        
+        
+        first_source_projected = self.source_projection(first_source)
+        
+        # Create residual by subtracting the first source from the mixture
+        residual_mixture = full_mix - first_source_projected
+        
+        # Create new feature tensor with residual (what's left after removing first source)
+        residual_features = tf.concat([residual_mixture, current_layer], axis=-1)
+        
+        # Process second source on the residual features
+        second_source = self.output_convs[1](residual_features)
+        outputs.append(second_source)
+    
         # Stack outputs along a new axis
-        return tf.stack(outputs, axis=1)  # Shape: [batch, max_sources, time, 1]
+        return tf.stack(outputs, axis=1)
 
 
 # Permutation Invariant Training Loss
