@@ -789,6 +789,7 @@ class WaveletUNet(tf.keras.Model):
         outputs = self.output_conv(current_layer)
         
         # outputs = tf.expand_dims(outputs, axis=-1)  # Add a new axis for channels[0 bs, 1 features, 2 chan/sources, 3 new axis]
+        outputs = tf.transpose(outputs, [0, 2, 1])  # Transpose to [batch, sources, time]
         # outputs = tf.transpose(outputs, [0, 2, 1, 3])
 
         
@@ -820,15 +821,15 @@ def pit_loss(y_true, y_pred):
     
     # Transpose y_pred from [batch, time, sources] to [batch, sources, time]
     # to match y_true's dimensions
-    y_pred_transposed = tf.transpose(y_pred, [0, 2, 1])
+    # y_pred_transposed = tf.transpose(y_pred, [0, 2, 1])
     # print(f"Transposed y_pred shape: {y_pred_transposed.shape}")
     
     # Now both tensors should have shape [batch, sources, time]
     # Extract sources (assuming 2 sources)
     y_true_s1 = y_true[:, 0, :]  # [batch, time]
     y_true_s2 = y_true[:, 1, :]  # [batch, time]
-    y_pred_s1 = y_pred_transposed[:, 0, :]  # [batch, time]
-    y_pred_s2 = y_pred_transposed[:, 1, :]  # [batch, time]
+    y_pred_s1 = y_pred[:, 0, :]  # [batch, time]
+    y_pred_s2 = y_pred[:, 1, :]  # [batch, time]
     
     # Calculate MSE for both permutations
     # Permutation 1: (true_s1, pred_s1), (true_s2, pred_s2)
