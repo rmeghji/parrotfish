@@ -830,8 +830,16 @@ def pit_loss(y_true, y_pred):
     # Choose the minimum loss between the two permutations
     min_loss = tf.minimum(perm1_loss, perm2_loss)
     
+    true_sum = tf.reduce_sum(y_true, axis=1)
+    pred_sum = tf.reduce_sum(y_pred, axis=1)
+    # Calculate the MSE for the sum of the sources
+    mse_sum = tf.reduce_mean(tf.square(true_sum - pred_sum), axis=[1, 2])
+    
+    # Combine the minimum loss with the sum loss
+    
+    
     # Return the average loss across the batch
-    return tf.reduce_mean(min_loss)
+    return tf.reduce_mean(min_loss) + 0.5*tf.reduce_mean(mse_sum)
 
 
 # Faster implementation for 2-4 sources
