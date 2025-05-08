@@ -802,113 +802,58 @@ class WaveletUNet(tf.keras.Model):
 @tf.keras.utils.register_keras_serializable()
 def pit_loss(y_true, y_pred):
     """
-    Permutation Invariant Training loss that handles dimension mismatches between
-    y_true and y_pred.
-    
-    This function first analyzes the shapes of the input tensors and adjusts them
-    to be compatible for loss calculation.
+    Permutation Invariant Training loss for audio source separation.
+    Handles the specific case where:
+    - y_true has shape [batch, sources, time] (e.g., [batch, 2, 16000])
+    - y_pred has shape [batch, time, sources] (e.g., [batch, 16000, 2])
     
     Args:
-        y_true: Ground truth with expected shape [batch, sources, (time)] or [batch, sources]
-        y_pred: Model prediction with expected shape [batch, time, sources]
+        y_true: Ground truth with shape [batch, sources, time]
+        y_pred: Model prediction with shape [batch, time, sources]
         
     Returns:
         The PIT loss value (scalar)
     """
     # Print shapes for debugging
-    print(f"y_true shape: {y_true.shape}")
-    print(f"y_pred shape: {y_pred.shape}")
+    # print(f"y_true shape: {y_true.shape}")
+    # print(f"y_pred shape: {y_pred.shape}")
     
-    # Analyze the shapes
-    y_true_shape = tf.shape(y_true)
-    y_pred_shape = tf.shape(y_pred)
+    # Transpose y_pred from [batch, time, sources] to [batch, sources, time]
+    # to match y_true's dimensions
+    y_pred_transposed = tf.transpose(y_pred, [0, 2, 1])
+    # print(f"Transposed y_pred shape: {y_pred_transposed.shape}")
     
-    # Reshape y_pred to [batch, sources, time] if it's [batch, time, sources]
-    if len(y_pred.shape) == 3 and y_pred.shape[1] > y_pred.shape[2]:
-        y_pred = tf.transpose(y_pred, [0, 2, 1])
-        print(f"Transposed y_pred shape: {y_pred.shape}")
+    # Now both tensors should have shape [batch, sources, time]
+    # Extract sources (assuming 2 sources)
+    y_true_s1 = y_true[:, 0, :]  # [batch, time]
+    y_true_s2 = y_true[:, 1, :]  # [batch, time]
+    y_pred_s1 = y_pred_transposed[:, 0, :]  # [batch, time]
+    y_pred_s2 = y_pred_transposed[:, 1, :]  # [batch, time]
     
-    # Handle case where y_true has shape [batch, sources]
-    # and y_pred has shape [batch, sources, time]
-    if len(y_true.shape) == 2 and len(y_pred.shape) == 3:
-        # Reduce y_pred along time dimension to match y_true
-        y_pred_reduced = tf.reduce_mean(y_pred, axis=2)
-        print(f"Reduced y_pred shape: {y_pred_reduced.shape}")
-        
-        # Now both should have shape [batch, sources]
-        y_true_adjusted = y_true
-        y_pred_adjusted = y_pred_reduced
+    # Calculate MSE for both permutations
+    # Permutation 1: (true_s1, pred_s1), (true_s2, pred_s2)
+    mse_1_1 = tf.reduce_mean(tf.square(y_true_s1 - y_pred_s1), axis=1)  # [batch]
+    mse_2_2 = tf.reduce_mean(tf.square(y_true_s2 - y_pred_s2), axis=1)  # [batch]
+    loss_perm1 = (mse_1_1 + mse_2_2) / 2.0  # [batch]
     
-    # Handle case where both have same rank but different dimensions
-    elif len(y_true.shape) == len(y_pred.shape) == 3:
-        # If time dimensions differ, we need to either:
-        # 1. Trim the longer one
-        # 2. Pad the shorter one
-        # Here we'll trim the longer one for simplicity
-        min_time = tf.minimum(y_true_shape[2], y_pred_shape[2])
-        y_true_adjusted = y_true[:, :, :min_time]
-        y_pred_adjusted = y_pred[:, :, :min_time]
-        print(f"Adjusted shapes to common time dimension: {min_time}")
+    # Permutation 2: (true_s1, pred_s2), (true_s2, pred_s1)
+    mse_1_2 = tf.reduce_mean(tf.square(y_true_s1 - y_pred_s2), axis=1)  # [batch]
+    mse_2_1 = tf.reduce_mean(tf.square(y_true_s2 - y_pred_s1), axis=1)  # [batch]
+    loss_perm2 = (mse_1_2 + mse_2_1) / 2.0  # [batch]
     
-    # Other cases - use tensors as is
-    else:
-        y_true_adjusted = y_true
-        y_pred_adjusted = y_pred
-        print("Using tensors as is")
+    # Choose the minimum loss between the two permutations
+    min_loss = tf.minimum(loss_perm1, loss_perm2)  # [batch]
     
-    # Calculate PIT loss based on the adjusted tensors
-    # For 2 sources case
-    num_sources = y_true_adjusted.shape[1]
-    if num_sources == 2:
-        # Extract sources
-        # These should now have compatible shapes
-        y_true_source1 = y_true_adjusted[:, 0]
-        y_true_source2 = y_true_adjusted[:, 1]
-        y_pred_source1 = y_pred_adjusted[:, 0]
-        y_pred_source2 = y_pred_adjusted[:, 1]
-        
-        # Calculate MSE for both permutations
-        # Permutation 1: (0,1)
-        # For 3D tensors, reduce over the last dimension (time)
-        # For 2D tensors, no need to reduce further
-        if len(y_true_adjusted.shape) == 3:
-            mse_0_0 = tf.reduce_mean(tf.square(y_true_source1 - y_pred_source1), axis=1)
-            mse_1_1 = tf.reduce_mean(tf.square(y_true_source2 - y_pred_source2), axis=1)
-        else:
-            mse_0_0 = tf.square(y_true_source1 - y_pred_source1)
-            mse_1_1 = tf.square(y_true_source2 - y_pred_source2)
-            
-        perm1_loss = (mse_0_0 + mse_1_1) / 2.0
-        
-        # Permutation 2: (1,0)
-        if len(y_true_adjusted.shape) == 3:
-            mse_0_1 = tf.reduce_mean(tf.square(y_true_source1 - y_pred_source2), axis=1)
-            mse_1_0 = tf.reduce_mean(tf.square(y_true_source2 - y_pred_source1), axis=1)
-        else:
-            mse_0_1 = tf.square(y_true_source1 - y_pred_source2)
-            mse_1_0 = tf.square(y_true_source2 - y_pred_source1)
-            
-        perm2_loss = (mse_0_1 + mse_1_0) / 2.0
-        
-        # Choose the minimum loss
-        min_loss = tf.minimum(perm1_loss, perm2_loss)
-        
-        # Calculate mixture consistency constraint if using 3D tensors
-        if len(y_true_adjusted.shape) == 3:
-            true_sum = y_true_source1 + y_true_source2
-            pred_sum = y_pred_source1 + y_pred_source2
-            sum_loss = tf.reduce_mean(tf.square(true_sum - pred_sum), axis=1)
-            
-            # Combine losses
-            alpha = 0.5
-            combined_loss = min_loss + alpha * sum_loss
-        else:
-            # No mixture consistency for 2D tensors
-            combined_loss = min_loss
-        
-        return tf.reduce_mean(combined_loss)
-    else:
-        raise NotImplementedError("The pit_loss currently only supports 2 sources")
+    # Mixture consistency constraint
+    true_sum = y_true_s1 + y_true_s2  # [batch, time]
+    pred_sum = y_pred_s1 + y_pred_s2  # [batch, time]
+    sum_loss = tf.reduce_mean(tf.square(true_sum - pred_sum), axis=1)  # [batch]
+    
+    # Combine losses
+    alpha = 0.5  # Weight for the mixture consistency constraint
+    combined_loss = min_loss + alpha * sum_loss  # [batch]
+    
+    return tf.reduce_mean(combined_loss) 
 
 
 # Faster implementation for 2-4 sources
