@@ -672,28 +672,34 @@ class WaveletUNet(tf.keras.Model):
             tf.keras.layers.Lambda(gelu)
         ])
         
-        self.source_projection = tf.keras.layers.Conv1D(
-            filters=1,  # Match the number of channels in mixture (typically 1 or 2)
-            kernel_size=1,         # 1x1 convolution for projection
-            padding='same',
-            activation=None,        # Linear projection
-            name='source_projection'
-        )
+        # self.source_projection = tf.keras.layers.Conv1D(
+        #     filters=1,  # Match the number of channels in mixture (typically 1 or 2)
+        #     kernel_size=1,         # 1x1 convolution for projection
+        #     padding='same',
+        #     activation=None,        # Linear projection
+        #     name='source_projection'
+        # )
         
         # Output layer for each source
-        self.output_convs = []
-        for i in range(self.max_sources):
-            self.output_convs.append(
-                tf.keras.layers.Conv1D(
-                    1,
-                    1,
-                    activation='tanh',
-                    padding='same',
-                    name=f'output_conv_{i}'
-                )
-            )
+        # self.output_convs = []
+        # for i in range(self.max_sources):
+        #     self.output_convs.append(
+        #         tf.keras.layers.Conv1D(
+        #             1,
+        #             1,
+        #             activation='tanh',
+        #             padding='same',
+        #             name=f'output_conv_{i}'
+        #         )
+        #     )
             
-        
+        self.output_conv = tf.keras.layers.Conv1D(
+            self.max_sources,
+            1,
+            activation='tanh',
+            padding='same',
+            name='output_conv'
+        )
             
         super().build(input_shape)
         self.summary()
@@ -777,31 +783,19 @@ class WaveletUNet(tf.keras.Model):
                 crop_start = diff // 2
                 current_layer = tf.slice(current_layer, [0, crop_start, 0], [-1, self.num_coeffs, -1])
 
-        base_features = tf.concat([full_mix, current_layer], axis=-1)
+        current_layer = tf.concat([full_mix, current_layer], axis=-1)
         
         # Generate separate outputs for each source using residual connections
-        outputs = []
+        outputs = self.output_conv(current_layer)
         
-        # First source extraction - this takes base_features which has shape (batch_size, 16000, 32)
-        # and outputs shape (batch_size, 16000, num_channels)
-        first_source = self.output_convs[0](base_features)
-        outputs.append(first_source)
+        outputs = tf.expand_dims(outputs, axis=-1)  # Add a new axis for channels[0 bs, 1 features, 2 chan/sources, 3 new axis]
+        outputs = tf.transpose(outputs, [0, 2, 1, 3])
+
         
-        
-        first_source_projected = self.source_projection(first_source)
-        
-        # Create residual by subtracting the first source from the mixture
-        residual_mixture = full_mix - first_source_projected
-        
-        # Create new feature tensor with residual (what's left after removing first source)
-        residual_features = tf.concat([residual_mixture, current_layer], axis=-1)
-        
-        # Process second source on the residual features
-        second_source = self.output_convs[1](residual_features)
-        outputs.append(second_source)
+        # outputs = tf.reshape(outputs, [self.batch_size, self.max_sources, self.num_coeffs, -1])
     
         # Stack outputs along a new axis
-        return tf.stack(outputs, axis=1)
+        return outputs
 
 
 # Permutation Invariant Training Loss
@@ -830,8 +824,8 @@ def pit_loss(y_true, y_pred):
     # Choose the minimum loss between the two permutations
     min_loss = tf.minimum(perm1_loss, perm2_loss)
     
-    true_sum = tf.reduce_sum(y_true, axis=1)
-    pred_sum = tf.reduce_sum(y_pred, axis=1)
+    true_sum = tf.reduce_sum(y_true, axis=2)
+    pred_sum = tf.reduce_sum(y_pred, axis=2)
     # Calculate the MSE for the sum of the sources
     mse_sum = tf.reduce_mean(tf.square(true_sum - pred_sum), axis=[1, 2])
     
