@@ -851,7 +851,7 @@ def pit_loss(y_true, y_pred):
     sum_loss = tf.reduce_mean(tf.square(true_sum - pred_sum), axis=1)  # [batch]
     
     # Combine losses
-    alpha = 0.2  # Weight for the mixture consistency constraint
+    alpha = 0.5  # Weight for the mixture consistency constraint
     combined_loss = min_loss + alpha * sum_loss  # [batch]
     
     return tf.reduce_mean(combined_loss) 
