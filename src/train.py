@@ -13,7 +13,7 @@ from utils.Pipeline import (
     create_tf_dataset,
     create_tf_dataset_from_tfrecords,
 )
-from utils.config import Config, RetrainConfig
+from utils.config import Config, RetrainConfig, RetrainConfig_flipped
 from model import (
     WaveletUNet,
     pit_loss,
@@ -82,8 +82,13 @@ def get_callbacks(save_directory):
         )
     ]
 
-def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_speakers=config.MAX_SOURCES, model=None):
+def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_speakers=config.MAX_SOURCES, model=None, retrain=False):
     """Main function to run the audio source separation pipeline"""    
+    
+    if retrain:
+        config = RetrainConfig_flipped()
+        
+        
     tf.config.optimizer.set_jit(True)
     # tf.keras.mixed_precision.set_global_policy('mixed_float16')
     for device in tf.config.list_physical_devices('GPU'):

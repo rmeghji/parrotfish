@@ -706,12 +706,14 @@ class WaveletUNet(tf.keras.Model):
 
     def call(self, inputs, training=True):
         # Initial processing
+        # Store the input for skip connection to final layer
+        full_mix = tf.reduce_sum(inputs, axis=-1, keepdims=True)
+        
         current_layer = self.initial_conv(inputs)
         current_layer = self.initial_norm(current_layer)
         current_layer = gelu(current_layer)
         
-        # Store the input for skip connection to final layer
-        full_mix = tf.reduce_sum(inputs, axis=-1, keepdims=True)
+        
         
         # Store encoder outputs for skip connections
         enc_outputs = {}
@@ -851,7 +853,7 @@ def pit_loss(y_true, y_pred):
     sum_loss = tf.reduce_mean(tf.square(true_sum - pred_sum), axis=1)  # [batch]
     
     # Combine losses
-    alpha = 0.5  # Weight for the mixture consistency constraint
+    alpha = 0.4  # Weight for the mixture consistency constraint
     combined_loss = min_loss + alpha * sum_loss  # [batch]
     
     return tf.reduce_mean(combined_loss) 
