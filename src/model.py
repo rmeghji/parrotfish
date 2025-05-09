@@ -543,14 +543,14 @@ class WaveletUNet(tf.keras.Model):
 
     def build(self, input_shape):
         # Initial convolution
-        self.initial_conv = tf.keras.layers.Conv1D(
-            self.num_init_filters,
-            self.filter_size,
-            padding='same',
-            kernel_regularizer=tf.keras.regularizers.l1_l2(l1=self.l1_reg, l2=self.l2_reg),
-            name='initial_conv'
-        )
-        self.initial_norm = tf.keras.layers.LayerNormalization(name='initial_norm')
+        # self.initial_conv = tf.keras.layers.Conv1D(
+        #     self.num_init_filters,
+        #     self.filter_size,
+        #     padding='same',
+        #     kernel_regularizer=tf.keras.regularizers.l1_l2(l1=self.l1_reg, l2=self.l2_reg),
+        #     name='initial_conv'
+        # )
+        # self.initial_norm = tf.keras.layers.LayerNormalization(name='initial_norm')
         
         # Create enhanced downsampling blocks
         self.downsampling_blocks = {}
@@ -709,9 +709,9 @@ class WaveletUNet(tf.keras.Model):
         # Store the input for skip connection to final layer
         full_mix = tf.reduce_sum(inputs, axis=-1, keepdims=True)
         
-        current_layer = self.initial_conv(inputs)
-        current_layer = self.initial_norm(current_layer)
-        current_layer = gelu(current_layer)
+        # current_layer = self.initial_conv(inputs)
+        # current_layer = self.initial_norm(current_layer)
+        # current_layer = gelu(current_layer)
         
         
         
