@@ -95,8 +95,8 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_spe
             print(f"Error setting memory growth: {e}")  
     
     # Set thread optimizations
-    tf.config.threading.set_inter_op_parallelism_threads(2)
-    tf.config.threading.set_intra_op_parallelism_threads(2)
+    # tf.config.threading.set_inter_op_parallelism_threads(2)
+    # tf.config.threading.set_intra_op_parallelism_threads(2)
     
     print("Starting audio source separation pipeline...")
 
