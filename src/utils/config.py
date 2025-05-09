@@ -12,7 +12,7 @@ class Config: # swapped to 32 filters US 16 DS
     BATCH_SIZE = 16 # 16-32
     CHANNELS = 1  # Mono audio
     NUM_LAYERS = 11 # 10-12
-    NUM_INIT_FILTERS = 1 ## was 24
+    NUM_INIT_FILTERS = 16 ## was 24
     FILTER_SIZE = 16 # was 16 should be 16
     MERGE_FILTER_SIZE = 16 # was 5 should be like 8
     L1_REG = 0*1e-6
