@@ -13,7 +13,7 @@ from utils.Pipeline import (
     create_tf_dataset,
     create_tf_dataset_from_tfrecords,
 )
-from utils.config import Config
+from utils.config import Config, RetrainConfig
 from model import (
     WaveletUNet,
     pit_loss,
@@ -148,10 +148,10 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_spe
     
     print("Creating Wavelet U-Net model...")
     
-    FROM_SCRATCH = False
+    # FROM_SCRATCH = False
     
     if model is None:
-        FROM_SCRATCH = True
+        # FROM_SCRATCH = True
         model = WaveletUNet(
             num_coeffs=config.NUM_COEFFS,
             wavelet_depth=config.WAVELET_DEPTH,
@@ -172,19 +172,19 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_spe
     dummy_input = tf.zeros((config.BATCH_SIZE, config.SEGMENT_LENGTH, 1))
     _ = model(dummy_input)
     
-    if FROM_SCRATCH:
-        model.compile(
-            optimizer=optimizer,
-            loss=pit_loss,
-            metrics=['mse'],
-            jit_compile=True
-        )
-    else: # getting XLA bullshit errors
-        model.compile(
-            optimizer=optimizer,
-            loss=pit_loss,
-            metrics=['mse'],
-        )
+    
+    model.compile(
+        optimizer=optimizer,
+        loss=pit_loss,
+        metrics=['mse'],
+        jit_compile=True
+    )
+    # else: # getting XLA bullshit errors
+    #     model.compile(
+    #         optimizer=optimizer,
+    #         loss=pit_loss,
+    #         metrics=['mse'],
+    #     )
     
     model.summary()
     
