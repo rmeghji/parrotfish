@@ -84,9 +84,6 @@ def get_callbacks(save_directory):
 
 def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_speakers=config.MAX_SOURCES, model=None, retrain=False):
     """Main function to run the audio source separation pipeline"""    
-    
-    if retrain:
-        config = RetrainConfig_flipped()
         
         
     tf.config.optimizer.set_jit(True)
