@@ -708,7 +708,7 @@ class WaveletUNet(tf.keras.Model):
         # Initial processing
         # Store the input for skip connection to final layer
         full_mix = tf.reduce_sum(inputs, axis=-1, keepdims=True)
-        
+        current_layer = inputs
         # current_layer = self.initial_conv(inputs)
         # current_layer = self.initial_norm(current_layer)
         # current_layer = gelu(current_layer)
