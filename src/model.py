@@ -274,7 +274,7 @@ class DownsamplingLayer(tf.keras.layers.Layer):
         x = self.layer_norm(x)
         x = gelu(x)
         
-        
+        # Add residual
         return x 
     
     def get_config(self):
