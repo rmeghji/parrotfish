@@ -82,7 +82,7 @@ def get_callbacks(save_directory):
         )
     ]
 
-def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_speakers=config.MAX_SOURCES):
+def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_speakers=config.MAX_SOURCES, model=None):
     """Main function to run the audio source separation pipeline"""    
     tf.config.optimizer.set_jit(True)
     # tf.keras.mixed_precision.set_global_policy('mixed_float16')
@@ -147,20 +147,22 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_spe
     print(f"Validation dataset created with {int(config.NUM_EXAMPLES * config.VAL_SPLIT)} examples")
     
     print("Creating Wavelet U-Net model...")
-    model = WaveletUNet(
-        num_coeffs=config.NUM_COEFFS,
-        wavelet_depth=config.WAVELET_DEPTH,
-        batch_size=config.BATCH_SIZE,
-        channels=config.CHANNELS,
-        num_layers=config.NUM_LAYERS,
-        num_init_filters=config.NUM_INIT_FILTERS,
-        filter_size=config.FILTER_SIZE,
-        merge_filter_size=config.MERGE_FILTER_SIZE,
-        l1_reg=config.L1_REG,
-        l2_reg=config.L2_REG,
-        max_sources=num_speakers,
-        wavelet_family=config.WAVELET_FAMILY
-    )
+    
+    if model is None:
+        model = WaveletUNet(
+            num_coeffs=config.NUM_COEFFS,
+            wavelet_depth=config.WAVELET_DEPTH,
+            batch_size=config.BATCH_SIZE,
+            channels=config.CHANNELS,
+            num_layers=config.NUM_LAYERS,
+            num_init_filters=config.NUM_INIT_FILTERS,
+            filter_size=config.FILTER_SIZE,
+            merge_filter_size=config.MERGE_FILTER_SIZE,
+            l1_reg=config.L1_REG,
+            l2_reg=config.L2_REG,
+            max_sources=num_speakers,
+            wavelet_family=config.WAVELET_FAMILY
+        )
     
     print("Compiling model with PIT loss...")
     optimizer = tf.keras.optimizers.Adam(learning_rate=config.LEARNING_RATE)
