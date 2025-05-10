@@ -101,8 +101,8 @@ class Config: # 32 filters DS 16 US
     CACHE_REFRESH_EVERY = 5
     
     # Mixture generation
-    MIN_SOURCES = 2
-    MAX_SOURCES = 2 # first curriculum learning
+    MIN_SOURCES = 1
+    MAX_SOURCES = 3 # first curriculum learning
     NUM_EXAMPLES = BATCH_SIZE * 4000
     
     # Wavelet settings

@@ -495,7 +495,7 @@ class WaveletUNet(tf.keras.Model):
         merge_filter_size = config.pop('merge_filter_size')
         l1_reg = config.pop('l1_reg')
         l2_reg = config.pop('l2_reg')
-        max_sources = config.pop('max_sources', 4)
+        max_sources = config.pop('max_sources', 3)
         wavelet_family = config.pop('wavelet_family', 'db4')
 
         return cls(
