@@ -853,9 +853,93 @@ class WaveletUNet(tf.keras.Model):
     
 #     return tf.reduce_mean(combined_loss) 
 
+# @tf.keras.utils.register_keras_serializable()
+# def pit_loss(y_true, y_pred):
+#     """
+#     Permutation Invariant Training loss for audio source separation with three sources.
+    
+#     Args:
+#         y_true: Ground truth with shape [batch, features, 3]
+#                Sources with fewer than 3 speakers are zero-padded.
+#         y_pred: Model prediction with shape [batch, features, 3]
+               
+#     Returns:
+#         The PIT loss value (scalar)
+#     """
+#     batch_size = tf.shape(y_true)[0]
+    
+#     # Transpose from [batch, features, 3] to [batch, 3, features]
+#     # to make it easier to work with individual sources
+    
+   
+    
+#     # Calculate pairwise MSE matrix where cost[b, i, j] = MSE between 
+#     # true source i and predicted source j for each batch item b
+#     mse_matrix = tf.zeros((batch_size, 3, 3))
+    
+#     # Populate the MSE matrix for all source pairs
+#     for i in range(3):
+#         for j in range(3):
+#             true_source = y_true[:, i, :]  # [batch, features]
+#             pred_source = y_pred[:, j, :]  # [batch, features]
+#             mse = tf.reduce_mean(tf.square(true_source - pred_source), axis=1)  # [batch]
+#             mse_matrix = tf.tensor_scatter_nd_update(
+#                 mse_matrix,
+#                 tf.stack([tf.range(batch_size, dtype=tf.int32), 
+#                           tf.fill((batch_size,), tf.cast(i, dtype=tf.int32)),
+#                           tf.fill((batch_size,), tf.cast(j, dtype=tf.int32))], axis=1),
+#                 mse
+#             )
+    
+#     # List all 6 possible permutations for 3 sources
+#     permutations = [
+#         [0, 1, 2],  # Identity
+#         [0, 2, 1],  # Swap 2nd and 3rd
+#         [1, 0, 2],  # Swap 1st and 2nd
+#         [1, 2, 0],  # First→second, second→third, third→first
+#         [2, 0, 1],  # First→third, second→first, third→second
+#         [2, 1, 0]   # First→third, second→second, third→first
+#     ]
+    
+#     # Calculate loss for each permutation
+#     perm_losses = tf.zeros((batch_size, len(permutations)))
+    
+#     # Compute the loss for each permutation
+#     for p_idx, perm in enumerate(permutations):
+#         perm_loss = tf.zeros((batch_size,))
+        
+#         # Sum the MSEs for this permutation assignment
+#         for i, j in enumerate(perm):
+#             indices = tf.stack([tf.range(batch_size, dtype=tf.int32), 
+#                               tf.fill((batch_size,), tf.cast(i, dtype=tf.int32)),
+#                               tf.fill((batch_size,), tf.cast(j, dtype=tf.int32))], axis=1)
+#             perm_loss += tf.gather_nd(mse_matrix, indices)
+        
+#         # Average the loss over all sources
+#         perm_loss = perm_loss / 3.0
+        
+#         # Store this permutation's loss
+#         perm_losses = tf.tensor_scatter_nd_update(
+#             perm_losses,
+#             tf.stack([tf.range(batch_size, dtype=tf.int32), 
+#                      tf.fill((batch_size,), tf.cast(p_idx, dtype=tf.int32))], axis=1),
+#             perm_loss
+#         )
+    
+#     # Choose the minimum loss among all permutations for each batch item
+#     min_loss = tf.reduce_min(perm_losses, axis=1)  # [batch]
+    
+#     # # Mixture consistency constraint (the sum of separated sources should equal the mixture)
+#     # true_sum = tf.reduce_sum(y_true, axis=1)  # [batch, features]
+#     # pred_sum = tf.reduce_sum(y_pred, axis=1)  # [batch, features]
+#     # sum_loss = tf.reduce_mean(tf.square(true_sum - pred_sum), axis=1)  # [batch]
+    
+#     # # Combine the separation loss and consistency loss with a weighting factor
+#     # alpha = 0.5  # Weight for the mixture consistency constraint
+#     # combined_loss = min_loss + alpha * sum_loss
+    
+#     return tf.reduce_mean(min_loss)  # Return the average loss across the batch
 
-import tensorflow as tf
-import itertools
 @tf.keras.utils.register_keras_serializable()
 def pit_loss(y_true, y_pred):
     """
@@ -869,79 +953,64 @@ def pit_loss(y_true, y_pred):
     Returns:
         The PIT loss value (scalar)
     """
-    batch_size = tf.shape(y_true)[0]
+    # Extract the three sources
+    y_true_s1 = y_true[:, 0, :]  # [batch, time]
+    y_true_s2 = y_true[:, 1, :]  # [batch, time]
+    y_true_s3 = y_true[:, 2, :]  # [batch, time]
     
-    # Transpose from [batch, features, 3] to [batch, 3, features]
-    # to make it easier to work with individual sources
+    y_pred_s1 = y_pred[:, 0, :]  # [batch, time]
+    y_pred_s2 = y_pred[:, 1, :]  # [batch, time]
+    y_pred_s3 = y_pred[:, 2, :]  # [batch, time]
     
-   
+    # Compute MSE between all possible pairs of true and predicted sources
+    # [true_s1, true_s2, true_s3] x [pred_s1, pred_s2, pred_s3]
+    mse_1_1 = tf.reduce_mean(tf.square(y_true_s1 - y_pred_s1), axis=1)  # [batch]
+    mse_1_2 = tf.reduce_mean(tf.square(y_true_s1 - y_pred_s2), axis=1)  # [batch]
+    mse_1_3 = tf.reduce_mean(tf.square(y_true_s1 - y_pred_s3), axis=1)  # [batch]
     
-    # Calculate pairwise MSE matrix where cost[b, i, j] = MSE between 
-    # true source i and predicted source j for each batch item b
-    mse_matrix = tf.zeros((batch_size, 3, 3))
+    mse_2_1 = tf.reduce_mean(tf.square(y_true_s2 - y_pred_s1), axis=1)  # [batch]
+    mse_2_2 = tf.reduce_mean(tf.square(y_true_s2 - y_pred_s2), axis=1)  # [batch]
+    mse_2_3 = tf.reduce_mean(tf.square(y_true_s2 - y_pred_s3), axis=1)  # [batch]
     
-    # Populate the MSE matrix for all source pairs
-    for i in range(3):
-        for j in range(3):
-            true_source = y_true[:, i, :]  # [batch, features]
-            pred_source = y_pred[:, j, :]  # [batch, features]
-            mse = tf.reduce_mean(tf.square(true_source - pred_source), axis=1)  # [batch]
-            mse_matrix = tf.tensor_scatter_nd_update(
-                mse_matrix,
-                tf.stack([tf.range(batch_size, dtype=tf.int32), 
-                          tf.fill((batch_size,), tf.cast(i, dtype=tf.int32)),
-                          tf.fill((batch_size,), tf.cast(j, dtype=tf.int32))], axis=1),
-                mse
-            )
+    mse_3_1 = tf.reduce_mean(tf.square(y_true_s3 - y_pred_s1), axis=1)  # [batch]
+    mse_3_2 = tf.reduce_mean(tf.square(y_true_s3 - y_pred_s2), axis=1)  # [batch]
+    mse_3_3 = tf.reduce_mean(tf.square(y_true_s3 - y_pred_s3), axis=1)  # [batch]
     
-    # List all 6 possible permutations for 3 sources
-    permutations = [
-        [0, 1, 2],  # Identity
-        [0, 2, 1],  # Swap 2nd and 3rd
-        [1, 0, 2],  # Swap 1st and 2nd
-        [1, 2, 0],  # First→second, second→third, third→first
-        [2, 0, 1],  # First→third, second→first, third→second
-        [2, 1, 0]   # First→third, second→second, third→first
-    ]
+    # Calculate losses for all 6 possible permutations
+    # Permutation 1: [0,1,2] - Identity mapping
+    loss_perm1 = (mse_1_1 + mse_2_2 + mse_3_3) / 3.0  # [batch]
     
-    # Calculate loss for each permutation
-    perm_losses = tf.zeros((batch_size, len(permutations)))
+    # Permutation 2: [0,2,1] - Swap 2nd and 3rd
+    loss_perm2 = (mse_1_1 + mse_2_3 + mse_3_2) / 3.0  # [batch]
     
-    # Compute the loss for each permutation
-    for p_idx, perm in enumerate(permutations):
-        perm_loss = tf.zeros((batch_size,))
-        
-        # Sum the MSEs for this permutation assignment
-        for i, j in enumerate(perm):
-            indices = tf.stack([tf.range(batch_size, dtype=tf.int32), 
-                              tf.fill((batch_size,), tf.cast(i, dtype=tf.int32)),
-                              tf.fill((batch_size,), tf.cast(j, dtype=tf.int32))], axis=1)
-            perm_loss += tf.gather_nd(mse_matrix, indices)
-        
-        # Average the loss over all sources
-        perm_loss = perm_loss / 3.0
-        
-        # Store this permutation's loss
-        perm_losses = tf.tensor_scatter_nd_update(
-            perm_losses,
-            tf.stack([tf.range(batch_size, dtype=tf.int32), 
-                     tf.fill((batch_size,), tf.cast(p_idx, dtype=tf.int32))], axis=1),
-            perm_loss
-        )
+    # Permutation 3: [1,0,2] - Swap 1st and 2nd
+    loss_perm3 = (mse_1_2 + mse_2_1 + mse_3_3) / 3.0  # [batch]
+    
+    # Permutation 4: [1,2,0] - First→second, second→third, third→first
+    loss_perm4 = (mse_1_2 + mse_2_3 + mse_3_1) / 3.0  # [batch]
+    
+    # Permutation 5: [2,0,1] - First→third, second→first, third→second
+    loss_perm5 = (mse_1_3 + mse_2_1 + mse_3_2) / 3.0  # [batch]
+    
+    # Permutation 6: [2,1,0] - First→third, second→second, third→first
+    loss_perm6 = (mse_1_3 + mse_2_2 + mse_3_1) / 3.0  # [batch]
+    
+    # Stack all permutation losses
+    all_losses = tf.stack([loss_perm1, loss_perm2, loss_perm3, 
+                          loss_perm4, loss_perm5, loss_perm6], axis=1)  # [batch, 6]
     
     # Choose the minimum loss among all permutations for each batch item
-    min_loss = tf.reduce_min(perm_losses, axis=1)  # [batch]
+    min_loss = tf.reduce_min(all_losses, axis=1)  # [batch]
     
-    # # Mixture consistency constraint (the sum of separated sources should equal the mixture)
-    # true_sum = tf.reduce_sum(y_true, axis=1)  # [batch, features]
-    # pred_sum = tf.reduce_sum(y_pred, axis=1)  # [batch, features]
+    # Optional: Add mixture consistency constraint
+    # true_sum = y_true_s1 + y_true_s2 + y_true_s3  # [batch, time]
+    # pred_sum = y_pred_s1 + y_pred_s2 + y_pred_s3  # [batch, time]
     # sum_loss = tf.reduce_mean(tf.square(true_sum - pred_sum), axis=1)  # [batch]
+    # alpha = 0.1  # Weight for the mixture consistency constraint
+    # min_loss = min_loss + alpha * sum_loss
     
-    # # Combine the separation loss and consistency loss with a weighting factor
-    # alpha = 0.5  # Weight for the mixture consistency constraint
-    # combined_loss = min_loss + alpha * sum_loss
-    
-    return tf.reduce_mean(min_loss)  # Return the average loss across the batch
+    # Return the average loss across the batch
+    return tf.reduce_mean(min_loss)
 
 
 
