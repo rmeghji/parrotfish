@@ -196,7 +196,7 @@ def test_separation(model, audio_file, output_dir="separated"):
         chunk_input = chunk.reshape(1, chunk_size, 1)
         predictions = model.predict(chunk_input)
         for j in range(Config.MAX_SOURCES):
-            source_chunk = predictions[0, j, :, 0]
+            source_chunk = predictions[0, j, :]
             separated_sources[j][start_idx:end_idx] = source_chunk
     
     for i, source in enumerate(separated_sources):
@@ -230,5 +230,5 @@ if __name__ == "__main__":
     # model, history = main(clips_dir)
 
 
-    model = load_saved_model("models", "wavelet_unet_52_0.0007")
+    model = load_saved_model("models/retrain", "wavelet_unet_32_0.0004")
     test_separation(model, "data/test_mix.wav", "data/output")
