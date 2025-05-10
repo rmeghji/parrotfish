@@ -889,8 +889,8 @@ def pit_loss(y_true, y_pred):
             mse_matrix = tf.tensor_scatter_nd_update(
                 mse_matrix,
                 tf.stack([tf.range(batch_size, dtype=tf.int32), 
-                          tf.fill((batch_size,), i, dtype=tf.int32),
-                          tf.fill((batch_size,), j, dtype=tf.int32)], axis=1),
+                          tf.fill((batch_size,), tf.cast(i, dtype=tf.int32)),
+                          tf.fill((batch_size,), tf.cast(j, dtype=tf.int32))], axis=1),
                 mse
             )
     
@@ -914,8 +914,8 @@ def pit_loss(y_true, y_pred):
         # Sum the MSEs for this permutation assignment
         for i, j in enumerate(perm):
             indices = tf.stack([tf.range(batch_size, dtype=tf.int32), 
-                              tf.fill((batch_size,), i, dtype=tf.int32),
-                              tf.fill((batch_size,), j, dtype=tf.int32)], axis=1)
+                              tf.fill((batch_size,), tf.cast(i, dtype=tf.int32)),
+                              tf.fill((batch_size,), tf.cast(j, dtype=tf.int32))], axis=1)
             perm_loss += tf.gather_nd(mse_matrix, indices)
         
         # Average the loss over all sources
