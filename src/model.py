@@ -925,7 +925,7 @@ def pit_loss(y_true, y_pred):
         perm_losses = tf.tensor_scatter_nd_update(
             perm_losses,
             tf.stack([tf.range(batch_size, dtype=tf.int32), 
-                     tf.fill((batch_size,), p_idx, dtype=tf.int32)], axis=1),
+                     tf.fill((batch_size,), tf.cast(p_idx, dtype=tf.int32))], axis=1),
             perm_loss
         )
     
