@@ -266,11 +266,7 @@ class DownsamplingLayer(tf.keras.layers.Layer):
         super().build(input_shape)
 
     def call(self, inputs):
-        # Residual connection
-        if self.input_proj is not None:
-            residual = self.input_proj(inputs)
-        else:
-            residual = inputs
+        
             
         # Main path
         x = self.conv(inputs)
@@ -278,7 +274,7 @@ class DownsamplingLayer(tf.keras.layers.Layer):
         x = gelu(x)
         
         # Add residual
-        return x + residual
+        return x 
     
     def get_config(self):
         config = super().get_config()
