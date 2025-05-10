@@ -467,7 +467,7 @@ class GatedSkipConnection(tf.keras.layers.Layer):
 class WaveletUNet(tf.keras.Model):
     def __init__(self, num_coeffs, wavelet_depth, batch_size, channels, num_layers, 
                  num_init_filters, filter_size, merge_filter_size, l1_reg, l2_reg,
-                 max_sources=4, wavelet_family='db4', **kwargs):
+                 max_sources=3, wavelet_family='db4', **kwargs):
         super().__init__(**kwargs)
         self.num_coeffs = num_coeffs
         self.wavelet_depth = wavelet_depth + 1
@@ -873,8 +873,6 @@ def pit_loss(y_true, y_pred):
     
     # Transpose from [batch, features, 3] to [batch, 3, features]
     # to make it easier to work with individual sources
-    y_true = tf.transpose(y_true, [0, 2, 1])  # [batch, 3, features]
-    y_pred = tf.transpose(y_pred, [0, 2, 1])  # [batch, 3, features]
     
     # Extract individual sources
     s1_true = y_true[:, 0, :]  # [batch, features]
