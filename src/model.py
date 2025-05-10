@@ -267,7 +267,10 @@ class DownsamplingLayer(tf.keras.layers.Layer):
 
     def call(self, inputs):
         # Residual connection
-        
+        if self.input_proj is not None:
+            residual = self.input_proj(inputs)
+        else:
+            residual = inputs
             
         # Main path
         x = self.conv(inputs)
@@ -275,7 +278,7 @@ class DownsamplingLayer(tf.keras.layers.Layer):
         x = gelu(x)
         
         # Add residual
-        return x 
+        return x + residual
     
     def get_config(self):
         config = super().get_config()
@@ -312,80 +315,89 @@ class UpsamplingLayer(tf.keras.layers.Layer):
             self.input_proj = None
         
         # Convolutional layers for separate processing of approximation and detail coefficients
-        # half_channels = self.input_channels // 2
+        half_channels = self.input_channels // 2
         self.approx_conv = tf.keras.layers.Conv1D(
-            self.input_channels,
+            half_channels,
             self.filter_size,
             padding='same',
             kernel_regularizer=tf.keras.regularizers.l1_l2(l1=self.l1_reg, l2=self.l2_reg),
             name=f'approx_conv_{self.name}'
         )
         
-        # self.detail_conv = tf.keras.layers.Conv1D(
-        #     self.input_channels,
-        #     self.filter_size,
-        #     padding='same',
-        #     kernel_regularizer=tf.keras.regularizers.l1_l2(l1=self.l1_reg, l2=self.l2_reg),
-        #     name=f'detail_conv_{self.name}'
-        # )
+        self.detail_conv = tf.keras.layers.Conv1D(
+            half_channels,
+            self.filter_size,
+            padding='same',
+            kernel_regularizer=tf.keras.regularizers.l1_l2(l1=self.l1_reg, l2=self.l2_reg),
+            name=f'detail_conv_{self.name}'
+        )
         
-        # # Gating mechanisms
-        # self.approx_gate = tf.keras.layers.Conv1D(
-        #     self.input_channels,
-        #     1,
-        #     activation='sigmoid',
-        #     padding='same',
-        #     name=f'approx_gate_{self.name}'
-        # )
+        # Gating mechanisms
+        self.approx_gate = tf.keras.layers.Conv1D(
+            half_channels,
+            1,
+            activation='sigmoid',
+            padding='same',
+            name=f'approx_gate_{self.name}'
+        )
         
-        # self.detail_gate = tf.keras.layers.Conv1D(
-        #     self.input_channels,
-        #     1,
-        #     activation='sigmoid',
-        #     padding='same',
-        #     name=f'detail_gate_{self.name}'
-        # )
+        self.detail_gate = tf.keras.layers.Conv1D(
+            half_channels,
+            1,
+            activation='sigmoid',
+            padding='same',
+            name=f'detail_gate_{self.name}'
+        )
         
         # Layer normalization
         self.approx_norm = tf.keras.layers.LayerNormalization(name=f'approx_norm_{self.name}')
-        # self.detail_norm = tf.keras.layers.LayerNormalization(name=f'detail_norm_{self.name}')
+        self.detail_norm = tf.keras.layers.LayerNormalization(name=f'detail_norm_{self.name}')
         
         # Final convolution after recombination
-        # self.output_conv = tf.keras.layers.Conv1D(
-        #     self.num_filters,
-        #     1,
-        #     padding='same',
-        #     kernel_regularizer=tf.keras.regularizers.l1_l2(l1=self.l1_reg, l2=self.l2_reg),
-        #     name=f'output_conv_{self.name}'
-        # )
+        self.output_conv = tf.keras.layers.Conv1D(
+            self.num_filters,
+            1,
+            padding='same',
+            kernel_regularizer=tf.keras.regularizers.l1_l2(l1=self.l1_reg, l2=self.l2_reg),
+            name=f'output_conv_{self.name}'
+        )
         
-        # self.output_norm = tf.keras.layers.LayerNormalization(name=f'output_norm_{self.name}')
+        self.output_norm = tf.keras.layers.LayerNormalization(name=f'output_norm_{self.name}')
         
         super().build(input_shape)
 
     def call(self, inputs):
         # Split into approximation and detail coefficients
-        
+        half_channels = self.input_channels // 2
+        approx_coeff = inputs[:, :, :half_channels]
+        detail_coeff = inputs[:, :, half_channels:]
         
         # Process each separately
-        approx_processed = self.approx_conv(inputs)
+        approx_processed = self.approx_conv(approx_coeff)
         approx_processed = self.approx_norm(approx_processed)
         approx_processed = gelu(approx_processed)
         
+        detail_processed = self.detail_conv(detail_coeff)
+        detail_processed = self.detail_norm(detail_processed)
+        detail_processed = gelu(detail_processed)
         
+        # Apply gating
+        approx_gate = self.approx_gate(approx_processed)
+        detail_gate = self.detail_gate(detail_processed)
         
+        approx_gated = approx_processed * approx_gate
+        detail_gated = detail_processed * detail_gate
         
         # Recombine
-        
-        
+        combined = tf.concat([approx_gated, detail_gated], axis=-1)
         
         
         # Final processing
-        # output = self.output_conv(combined)
-        # output = self.output_norm(output)
-        # output = gelu(output)
+        output = self.output_conv(combined)
+        output = self.output_norm(output)
+        output = gelu(output)
         
-        return approx_processed 
+        return output 
     
     def get_config(self):
         config = super().get_config()
@@ -526,14 +538,14 @@ class WaveletUNet(tf.keras.Model):
 
     def build(self, input_shape):
         # Initial convolution
-        # self.initial_conv = tf.keras.layers.Conv1D(
-        #     self.num_init_filters,
-        #     self.filter_size,
-        #     padding='same',
-        #     kernel_regularizer=tf.keras.regularizers.l1_l2(l1=self.l1_reg, l2=self.l2_reg),
-        #     name='initial_conv'
-        # )
-        # self.initial_norm = tf.keras.layers.LayerNormalization(name='initial_norm')
+        self.initial_conv = tf.keras.layers.Conv1D(
+            self.num_init_filters,
+            self.filter_size,
+            padding='same',
+            kernel_regularizer=tf.keras.regularizers.l1_l2(l1=self.l1_reg, l2=self.l2_reg),
+            name='initial_conv'
+        )
+        self.initial_norm = tf.keras.layers.LayerNormalization(name='initial_norm')
         
         # Create enhanced downsampling blocks
         self.downsampling_blocks = {}
@@ -689,14 +701,12 @@ class WaveletUNet(tf.keras.Model):
 
     def call(self, inputs, training=True):
         # Initial processing
+        current_layer = self.initial_conv(inputs)
+        current_layer = self.initial_norm(current_layer)
+        current_layer = gelu(current_layer)
+        
         # Store the input for skip connection to final layer
         full_mix = tf.reduce_sum(inputs, axis=-1, keepdims=True)
-        current_layer = inputs
-        # current_layer = self.initial_conv(inputs)
-        # current_layer = self.initial_norm(current_layer)
-        # current_layer = gelu(current_layer)
-        
-        
         
         # Store encoder outputs for skip connections
         enc_outputs = {}
@@ -836,7 +846,7 @@ def pit_loss(y_true, y_pred):
     sum_loss = tf.reduce_mean(tf.square(true_sum - pred_sum), axis=1)  # [batch]
     
     # Combine losses
-    alpha = 0.4  # Weight for the mixture consistency constraint
+    alpha = 0.5  # Weight for the mixture consistency constraint
     combined_loss = min_loss + alpha * sum_loss  # [batch]
     
     return tf.reduce_mean(combined_loss) 

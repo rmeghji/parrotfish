@@ -1,4 +1,4 @@
-class Config: # swapped to 32 filters US 16 DS
+class Config_small: # swapped to 32 filters US 16 DS
     """Configuration class for parrotfish""" 
     # Data settings
     DATA_DIR = "data/audio"
@@ -72,7 +72,7 @@ class Config_flipped: # swapped to 32 filters US 16 DS
     # Wavelet settings
     WAVELET_FAMILY = 'db4'  # Daubechies wavelet with 4 vanishing moments
 
-class Config_normal: # 32 filters DS 16 US
+class Config: # 32 filters DS 16 US
     """Configuration class for parrotfish""" 
     # Data settings
     DATA_DIR = "data/audio"
