@@ -13,7 +13,7 @@ from utils.Pipeline import (
     create_tf_dataset,
     create_tf_dataset_from_tfrecords,
 )
-from utils.config import Config
+from utils.config import Config, RetrainConfig, RetrainConfig_flipped
 from model import (
     WaveletUNet,
     pit_loss,
@@ -82,8 +82,10 @@ def get_callbacks(save_directory):
         )
     ]
 
-def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_speakers=config.MAX_SOURCES):
+def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_speakers=config.MAX_SOURCES, model=None, retrain=False):
     """Main function to run the audio source separation pipeline"""    
+        
+        
     tf.config.optimizer.set_jit(True)
     # tf.keras.mixed_precision.set_global_policy('mixed_float16')
     for device in tf.config.list_physical_devices('GPU'):
@@ -95,8 +97,8 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_spe
             print(f"Error setting memory growth: {e}")  
     
     # Set thread optimizations
-    tf.config.threading.set_inter_op_parallelism_threads(2)
-    tf.config.threading.set_intra_op_parallelism_threads(2)
+    # tf.config.threading.set_inter_op_parallelism_threads(2)
+    # tf.config.threading.set_intra_op_parallelism_threads(2)
     
     print("Starting audio source separation pipeline...")
 
@@ -147,31 +149,44 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_spe
     print(f"Validation dataset created with {int(config.NUM_EXAMPLES * config.VAL_SPLIT)} examples")
     
     print("Creating Wavelet U-Net model...")
-    model = WaveletUNet(
-        num_coeffs=config.NUM_COEFFS,
-        wavelet_depth=config.WAVELET_DEPTH,
-        batch_size=config.BATCH_SIZE,
-        channels=config.CHANNELS,
-        num_layers=config.NUM_LAYERS,
-        num_init_filters=config.NUM_INIT_FILTERS,
-        filter_size=config.FILTER_SIZE,
-        merge_filter_size=config.MERGE_FILTER_SIZE,
-        l1_reg=config.L1_REG,
-        l2_reg=config.L2_REG,
-        max_sources=num_speakers,
-        wavelet_family=config.WAVELET_FAMILY
-    )
+    
+    # FROM_SCRATCH = False
+    
+    if model is None:
+        # FROM_SCRATCH = True
+        model = WaveletUNet(
+            num_coeffs=config.NUM_COEFFS,
+            wavelet_depth=config.WAVELET_DEPTH,
+            batch_size=config.BATCH_SIZE,
+            channels=config.CHANNELS,
+            num_layers=config.NUM_LAYERS,
+            num_init_filters=config.NUM_INIT_FILTERS,
+            filter_size=config.FILTER_SIZE,
+            merge_filter_size=config.MERGE_FILTER_SIZE,
+            l1_reg=config.L1_REG,
+            l2_reg=config.L2_REG,
+            max_sources=num_speakers,
+            wavelet_family=config.WAVELET_FAMILY
+        )
     
     print("Compiling model with PIT loss...")
     optimizer = tf.keras.optimizers.Adam(learning_rate=config.LEARNING_RATE)
     dummy_input = tf.zeros((config.BATCH_SIZE, config.SEGMENT_LENGTH, 1))
     _ = model(dummy_input)
+    
+    
     model.compile(
         optimizer=optimizer,
         loss=pit_loss,
         metrics=['mse'],
         jit_compile=True
     )
+    # else: # getting XLA bullshit errors
+    #     model.compile(
+    #         optimizer=optimizer,
+    #         loss=pit_loss,
+    #         metrics=['mse'],
+    #     )
     
     model.summary()
     
