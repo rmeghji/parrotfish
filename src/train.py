@@ -82,7 +82,7 @@ def get_callbacks(save_directory):
         )
     ]
 
-def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_speakers=config.MAX_SOURCES, model=None, retrain=False):
+def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, max_sources=config.MAX_SOURCES, model=None, retrain=False):
     """Main function to run the audio source separation pipeline"""    
         
         
@@ -107,7 +107,7 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_spe
         dataset = create_tf_dataset(
             base_dir=config.DATA_DIR,
             clips_dir=clips_dir,
-            num_speakers=num_speakers,
+            num_speakers=max_sources,
             batch_size=config.BATCH_SIZE
         )
         train_dataset = dataset.take(train_steps).repeat()
@@ -128,13 +128,13 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_spe
 
         train_dataset = create_tf_dataset_from_tfrecords(
             tfrecord_files=train_records,
-            num_speakers=num_speakers,
+            max_sources=max_sources,
             batch_size=config.BATCH_SIZE,
             is_train=True
         )
         val_dataset = create_tf_dataset_from_tfrecords(
             tfrecord_files=val_records,
-            num_speakers=num_speakers,
+            max_sources=max_sources,
             batch_size=config.BATCH_SIZE,
             is_train=False
         )
@@ -165,7 +165,7 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_spe
             merge_filter_size=config.MERGE_FILTER_SIZE,
             l1_reg=config.L1_REG,
             l2_reg=config.L2_REG,
-            max_sources=num_speakers,
+            max_sources=max_sources,
             wavelet_family=config.WAVELET_FAMILY
         )
     
