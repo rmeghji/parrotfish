@@ -874,14 +874,7 @@ def pit_loss(y_true, y_pred):
     # Transpose from [batch, features, 3] to [batch, 3, features]
     # to make it easier to work with individual sources
     
-    # Extract individual sources
-    s1_true = y_true[:, 0, :]  # [batch, features]
-    s2_true = y_true[:, 1, :]  # [batch, features]
-    s3_true = y_true[:, 2, :]  # [batch, features]
-    
-    s1_pred = y_pred[:, 0, :]  # [batch, features]
-    s2_pred = y_pred[:, 1, :]  # [batch, features]
-    s3_pred = y_pred[:, 2, :]  # [batch, features]
+   
     
     # Calculate pairwise MSE matrix where cost[b, i, j] = MSE between 
     # true source i and predicted source j for each batch item b
