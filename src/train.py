@@ -174,7 +174,6 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, num_spe
     dummy_input = tf.zeros((config.BATCH_SIZE, config.SEGMENT_LENGTH, 1))
     _ = model(dummy_input)
     
-    
     model.compile(
         optimizer=optimizer,
         loss=pit_loss,

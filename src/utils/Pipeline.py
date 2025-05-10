@@ -290,18 +290,19 @@ def create_tf_dataset(base_dir, clips_dir, num_speakers, batch_size=32, wavelet_
     
 #     return dataset
 
-def create_tf_dataset_from_tfrecords(tfrecord_files, num_speakers, batch_size=128, is_train=True):
+def create_tf_dataset_from_tfrecords(tfrecord_files, max_sources, batch_size=128, is_train=True):
     """Create a TensorFlow dataset from TFRecord files containing audio data
     Optimized for GPU execution on A100
     
     Args:
         tfrecord_files: List of TFRecord files
-        num_speakers: Number of speakers to mix
+        max_sources: Maximum number of audio sources to mix
         batch_size: Batch size for training (increased for A100)
         is_train: Whether to use training-specific logic
         
     Returns:
         tf.data.Dataset: Dataset that yields (mixed_audio, separated_audio) pairs
+        where separated_audio is padded with zeros if less than max_sources are used
     """
     
     samples_per_clip = 16000
@@ -351,29 +352,43 @@ def create_tf_dataset_from_tfrecords(tfrecord_files, num_speakers, batch_size=12
         
         # Pre-allocate output tensors
         mixed_audio = tf.zeros((batch_size, samples_per_clip, 1), dtype=tf.float32)
-        separated_audio = tf.zeros((batch_size, num_speakers, samples_per_clip, 1), dtype=tf.float32)
+        separated_audio = tf.zeros((batch_size, max_sources, samples_per_clip, 1), dtype=tf.float32)
         
-        # Generate mixing weights
-        weights = tf.random.uniform((batch_size, num_speakers), minval=0.5, maxval=1.5)
+        # Generate random number of sources for each batch item (between 1 and max_sources)
+        num_sources_per_batch = tf.random.uniform(
+            shape=(batch_size,),
+            minval=1,
+            maxval=max_sources + 1,
+            dtype=tf.int32
+        )
+        
+        # Create a mask for valid sources
+        source_indices = tf.range(max_sources, dtype=tf.int32)
+        source_mask = tf.expand_dims(source_indices, 0) < tf.expand_dims(num_sources_per_batch, 1)
+        
+        # Generate mixing weights only for valid sources
+        weights = tf.random.uniform((batch_size, max_sources), minval=0.67, maxval=1.33)
+        weights = weights * tf.cast(source_mask, tf.float32)
         weights = weights / tf.reduce_sum(weights, axis=1, keepdims=True)
         
-        # Generate all indices at once for better vectorization
-        all_indices = tf.random.uniform((batch_size, num_speakers), 0, batch_size, dtype=tf.int32)
+        # Generate indices for all possible sources
+        all_indices = tf.random.uniform((batch_size, max_sources), 0, batch_size, dtype=tf.int32)
         
-        # Process all speakers in a vectorized way where possible
-        for i in range(num_speakers):
-            # Extract indices for current speaker
+        # Process all potential sources
+        for i in range(max_sources):
+            # Extract indices for current source
             indices = all_indices[:, i]
             
-            # Gather waveforms for this speaker
+            # Gather waveforms for this source
             selected_waveforms = tf.gather(waveforms, indices)
             
             # Apply weights
             batch_weights = tf.reshape(weights[:, i], (batch_size, 1, 1))
             weighted_waveforms = selected_waveforms * batch_weights
             
-            # Add to mixed audio
-            mixed_audio += weighted_waveforms
+            # Add to mixed audio (only for valid sources)
+            source_mask_i = tf.reshape(source_mask[:, i], (batch_size, 1, 1))
+            mixed_audio += weighted_waveforms * tf.cast(source_mask_i, tf.float32)
             
             # Update separated audio tensor
             update_indices = tf.stack([tf.range(batch_size), tf.fill((batch_size,), i)], axis=1)
