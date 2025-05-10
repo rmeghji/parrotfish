@@ -777,11 +777,17 @@ class WaveletUNet(tf.keras.Model):
         current_layer = tf.concat([full_mix, current_layer], axis=-1)
         
         # Generate separate outputs for each source using residual connections
-        outputs = self.output_conv(current_layer)
+        partial_outputs = self.output_conv(current_layer)
+        
+        residual_source = full_mix - tf.reduce_sum(partial_outputs, axis=-1, keepdims=True)
+        
+        outputs = tf.concat([partial_outputs, residual_source], axis=-1)
+        
+        
         
         # outputs = tf.expand_dims(outputs, axis=-1)  # Add a new axis for channels[0 bs, 1 features, 2 chan/sources, 3 new axis]
         outputs = tf.transpose(outputs, [0, 2, 1])  # Transpose to [batch, sources, time]
-        # outputs = tf.transpose(outputs, [0, 2, 1, 3])
+        
 
         
         # outputs = tf.reshape(outputs, [self.batch_size, self.max_sources, self.num_coeffs, -1])
@@ -790,62 +796,163 @@ class WaveletUNet(tf.keras.Model):
         return outputs
 
 
-# Permutation Invariant Training Loss
+# # Permutation Invariant Training Loss
+# @tf.keras.utils.register_keras_serializable()
+# def pit_loss(y_true, y_pred):
+#     """
+#     Permutation Invariant Training loss for audio source separation.
+#     Handles the specific case where:
+#     - y_true has shape [batch, sources, time] (e.g., [batch, 2, 16000])
+#     - y_pred has shape [batch, time, sources] (e.g., [batch, 16000, 2])
+    
+#     Args:
+#         y_true: Ground truth with shape [batch, sources, time]
+#         y_pred: Model prediction with shape [batch, time, sources]
+        
+#     Returns:
+#         The PIT loss value (scalar)
+#     """
+#     # Print shapes for debugging
+#     # print(f"y_true shape: {y_true.shape}")
+#     # print(f"y_pred shape: {y_pred.shape}")
+    
+#     # Transpose y_pred from [batch, time, sources] to [batch, sources, time]
+#     # to match y_true's dimensions
+#     # y_pred_transposed = tf.transpose(y_pred, [0, 2, 1])
+#     # print(f"Transposed y_pred shape: {y_pred_transposed.shape}")
+    
+#     # Now both tensors should have shape [batch, sources, time]
+#     # Extract sources (assuming 2 sources)
+#     y_true_s1 = y_true[:, 0, :]  # [batch, time]
+#     y_true_s2 = y_true[:, 1, :]  # [batch, time]
+#     y_pred_s1 = y_pred[:, 0, :]  # [batch, time]
+#     y_pred_s2 = y_pred[:, 1, :]  # [batch, time]
+    
+#     # Calculate MSE for both permutations
+#     # Permutation 1: (true_s1, pred_s1), (true_s2, pred_s2)
+#     mse_1_1 = tf.reduce_mean(tf.square(y_true_s1 - y_pred_s1), axis=1)  # [batch]
+#     mse_2_2 = tf.reduce_mean(tf.square(y_true_s2 - y_pred_s2), axis=1)  # [batch]
+#     loss_perm1 = (mse_1_1 + mse_2_2) / 2.0  # [batch]
+    
+#     # Permutation 2: (true_s1, pred_s2), (true_s2, pred_s1)
+#     mse_1_2 = tf.reduce_mean(tf.square(y_true_s1 - y_pred_s2), axis=1)  # [batch]
+#     mse_2_1 = tf.reduce_mean(tf.square(y_true_s2 - y_pred_s1), axis=1)  # [batch]
+#     loss_perm2 = (mse_1_2 + mse_2_1) / 2.0  # [batch]
+    
+#     # Choose the minimum loss between the two permutations
+#     min_loss = tf.minimum(loss_perm1, loss_perm2)  # [batch]
+    
+#     # Mixture consistency constraint
+#     true_sum = y_true_s1 + y_true_s2  # [batch, time]
+#     pred_sum = y_pred_s1 + y_pred_s2  # [batch, time]
+#     sum_loss = tf.reduce_mean(tf.square(true_sum - pred_sum), axis=1)  # [batch]
+    
+#     # Combine losses
+#     alpha = 0.5  # Weight for the mixture consistency constraint
+#     combined_loss = min_loss + alpha * sum_loss  # [batch]
+    
+#     return tf.reduce_mean(combined_loss) 
+
+
+import tensorflow as tf
+import itertools
 @tf.keras.utils.register_keras_serializable()
 def pit_loss(y_true, y_pred):
     """
-    Permutation Invariant Training loss for audio source separation.
-    Handles the specific case where:
-    - y_true has shape [batch, sources, time] (e.g., [batch, 2, 16000])
-    - y_pred has shape [batch, time, sources] (e.g., [batch, 16000, 2])
+    Permutation Invariant Training loss for audio source separation with three sources.
     
     Args:
-        y_true: Ground truth with shape [batch, sources, time]
-        y_pred: Model prediction with shape [batch, time, sources]
-        
+        y_true: Ground truth with shape [batch, features, 3]
+               Sources with fewer than 3 speakers are zero-padded.
+        y_pred: Model prediction with shape [batch, features, 3]
+               
     Returns:
         The PIT loss value (scalar)
     """
-    # Print shapes for debugging
-    # print(f"y_true shape: {y_true.shape}")
-    # print(f"y_pred shape: {y_pred.shape}")
+    batch_size = tf.shape(y_true)[0]
     
-    # Transpose y_pred from [batch, time, sources] to [batch, sources, time]
-    # to match y_true's dimensions
-    # y_pred_transposed = tf.transpose(y_pred, [0, 2, 1])
-    # print(f"Transposed y_pred shape: {y_pred_transposed.shape}")
+    # Transpose from [batch, features, 3] to [batch, 3, features]
+    # to make it easier to work with individual sources
+    y_true = tf.transpose(y_true, [0, 2, 1])  # [batch, 3, features]
+    y_pred = tf.transpose(y_pred, [0, 2, 1])  # [batch, 3, features]
     
-    # Now both tensors should have shape [batch, sources, time]
-    # Extract sources (assuming 2 sources)
-    y_true_s1 = y_true[:, 0, :]  # [batch, time]
-    y_true_s2 = y_true[:, 1, :]  # [batch, time]
-    y_pred_s1 = y_pred[:, 0, :]  # [batch, time]
-    y_pred_s2 = y_pred[:, 1, :]  # [batch, time]
+    # Extract individual sources
+    s1_true = y_true[:, 0, :]  # [batch, features]
+    s2_true = y_true[:, 1, :]  # [batch, features]
+    s3_true = y_true[:, 2, :]  # [batch, features]
     
-    # Calculate MSE for both permutations
-    # Permutation 1: (true_s1, pred_s1), (true_s2, pred_s2)
-    mse_1_1 = tf.reduce_mean(tf.square(y_true_s1 - y_pred_s1), axis=1)  # [batch]
-    mse_2_2 = tf.reduce_mean(tf.square(y_true_s2 - y_pred_s2), axis=1)  # [batch]
-    loss_perm1 = (mse_1_1 + mse_2_2) / 2.0  # [batch]
+    s1_pred = y_pred[:, 0, :]  # [batch, features]
+    s2_pred = y_pred[:, 1, :]  # [batch, features]
+    s3_pred = y_pred[:, 2, :]  # [batch, features]
     
-    # Permutation 2: (true_s1, pred_s2), (true_s2, pred_s1)
-    mse_1_2 = tf.reduce_mean(tf.square(y_true_s1 - y_pred_s2), axis=1)  # [batch]
-    mse_2_1 = tf.reduce_mean(tf.square(y_true_s2 - y_pred_s1), axis=1)  # [batch]
-    loss_perm2 = (mse_1_2 + mse_2_1) / 2.0  # [batch]
+    # Calculate pairwise MSE matrix where cost[b, i, j] = MSE between 
+    # true source i and predicted source j for each batch item b
+    mse_matrix = tf.zeros((batch_size, 3, 3))
     
-    # Choose the minimum loss between the two permutations
-    min_loss = tf.minimum(loss_perm1, loss_perm2)  # [batch]
+    # Populate the MSE matrix for all source pairs
+    for i in range(3):
+        for j in range(3):
+            true_source = y_true[:, i, :]  # [batch, features]
+            pred_source = y_pred[:, j, :]  # [batch, features]
+            mse = tf.reduce_mean(tf.square(true_source - pred_source), axis=1)  # [batch]
+            mse_matrix = tf.tensor_scatter_nd_update(
+                mse_matrix,
+                tf.stack([tf.range(batch_size, dtype=tf.int32), 
+                          tf.fill((batch_size,), i, dtype=tf.int32),
+                          tf.fill((batch_size,), j, dtype=tf.int32)], axis=1),
+                mse
+            )
     
-    # Mixture consistency constraint
-    true_sum = y_true_s1 + y_true_s2  # [batch, time]
-    pred_sum = y_pred_s1 + y_pred_s2  # [batch, time]
-    sum_loss = tf.reduce_mean(tf.square(true_sum - pred_sum), axis=1)  # [batch]
+    # List all 6 possible permutations for 3 sources
+    permutations = [
+        [0, 1, 2],  # Identity
+        [0, 2, 1],  # Swap 2nd and 3rd
+        [1, 0, 2],  # Swap 1st and 2nd
+        [1, 2, 0],  # First→second, second→third, third→first
+        [2, 0, 1],  # First→third, second→first, third→second
+        [2, 1, 0]   # First→third, second→second, third→first
+    ]
     
-    # Combine losses
-    alpha = 0.5  # Weight for the mixture consistency constraint
-    combined_loss = min_loss + alpha * sum_loss  # [batch]
+    # Calculate loss for each permutation
+    perm_losses = tf.zeros((batch_size, len(permutations)))
     
-    return tf.reduce_mean(combined_loss) 
+    # Compute the loss for each permutation
+    for p_idx, perm in enumerate(permutations):
+        perm_loss = tf.zeros((batch_size,))
+        
+        # Sum the MSEs for this permutation assignment
+        for i, j in enumerate(perm):
+            indices = tf.stack([tf.range(batch_size, dtype=tf.int32), 
+                              tf.fill((batch_size,), i, dtype=tf.int32),
+                              tf.fill((batch_size,), j, dtype=tf.int32)], axis=1)
+            perm_loss += tf.gather_nd(mse_matrix, indices)
+        
+        # Average the loss over all sources
+        perm_loss = perm_loss / 3.0
+        
+        # Store this permutation's loss
+        perm_losses = tf.tensor_scatter_nd_update(
+            perm_losses,
+            tf.stack([tf.range(batch_size, dtype=tf.int32), 
+                     tf.fill((batch_size,), p_idx, dtype=tf.int32)], axis=1),
+            perm_loss
+        )
+    
+    # Choose the minimum loss among all permutations for each batch item
+    min_loss = tf.reduce_min(perm_losses, axis=1)  # [batch]
+    
+    # # Mixture consistency constraint (the sum of separated sources should equal the mixture)
+    # true_sum = tf.reduce_sum(y_true, axis=1)  # [batch, features]
+    # pred_sum = tf.reduce_sum(y_pred, axis=1)  # [batch, features]
+    # sum_loss = tf.reduce_mean(tf.square(true_sum - pred_sum), axis=1)  # [batch]
+    
+    # # Combine the separation loss and consistency loss with a weighting factor
+    # alpha = 0.5  # Weight for the mixture consistency constraint
+    # combined_loss = min_loss + alpha * sum_loss
+    
+    return tf.reduce_mean(min_loss)  # Return the average loss across the batch
+
+
 
 
 # Faster implementation for 2-4 sources

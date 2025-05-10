@@ -88,7 +88,7 @@ class Config: # 32 filters DS 16 US
     NUM_LAYERS = 11 # 10-12
     NUM_INIT_FILTERS = 32 ## was 24
     FILTER_SIZE = 32 # was 16 should be 16
-    MERGE_FILTER_SIZE = 16 # was 5 should be like 8
+    MERGE_FILTER_SIZE = 32 # was 5 should be like 8
     L1_REG = 0*1e-6
     L2_REG = 0 *1e-6
     
