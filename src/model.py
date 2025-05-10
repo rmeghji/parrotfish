@@ -685,7 +685,7 @@ class WaveletUNet(tf.keras.Model):
         #     )
             
         self.output_conv = tf.keras.layers.Conv1D(
-            self.max_sources,
+            self.max_sources - 1,
             1,
             activation='tanh',
             padding='same',
