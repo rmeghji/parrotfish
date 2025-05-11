@@ -26,9 +26,9 @@ from model import (
 )
 from main import save_model, plot_model
 
-config = Config()
+# config = Config()
 
-def get_callbacks(save_directory):
+def get_callbacks(save_directory, config):
     return [
         tf.keras.callbacks.ModelCheckpoint(
             filepath=os.path.join(config.CHECKPOINT_DIR, 'wavelet_unet_{epoch:02d}_{val_loss:.4f}.keras'),
@@ -82,9 +82,15 @@ def get_callbacks(save_directory):
         )
     ]
 
-def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, max_sources=config.MAX_SOURCES, model=None, retrain=False):
-    """Main function to run the audio source separation pipeline"""    
-        
+def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, model=None, retrain=False):
+    """Main function to run the audio source separation pipeline"""
+
+    if retrain:
+        config = RetrainConfig()
+    else:
+        config = Config()
+
+    max_sources = config.MAX_SOURCES
         
     tf.config.optimizer.set_jit(True)
     # tf.keras.mixed_precision.set_global_policy('mixed_float16')
@@ -191,7 +197,7 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, max_sou
     
     print("Setting up training callbacks...")
     os.makedirs(config.CHECKPOINT_DIR, exist_ok=True)
-    callbacks = get_callbacks(save_directory)
+    callbacks = get_callbacks(save_directory, config)
 
     print(f"Training model for {config.EPOCHS} epochs...")
     history = model.fit(

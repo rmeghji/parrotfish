@@ -230,5 +230,5 @@ if __name__ == "__main__":
     # model, history = main(clips_dir)
 
 
-    model = load_saved_model("models/retrain", "wavelet_unet_32_0.0004")
+    model = load_saved_model("models/arbitrary", "wavelet_unet_37_0.0003")
     test_separation(model, "data/test_mix.wav", "data/output")
