@@ -24,6 +24,8 @@ from model import (
     UpsamplingLayer,
     GatedSkipConnection,
 )
+from utils.data_preparation import process_audio_for_prediction, reconstruct_audio_from_clips
+from pydub import AudioSegment
 
 config = Config()
 
@@ -167,7 +169,6 @@ def plot_model(history, config, save_directory):
     
     print("Wavelet U-Net pipeline completed successfully!")
 
-
 def test_separation(model, audio_file, output_dir="separated"):
     """Test the model on a new audio file"""
     os.makedirs(output_dir, exist_ok=True)
@@ -205,6 +206,37 @@ def test_separation(model, audio_file, output_dir="separated"):
     
     print(f"Separated sources saved to {output_dir}")
 
+def separate_audio(model, audio, clip_duration_seconds=1.0, window_overlap_ratio=0.25):
+    """Separate audio into sources using overlapping windows for better reconstruction.
+    
+    Args:
+        model: The trained separation model
+        audio: Input audio array
+        clip_duration_seconds: Duration of each clip in seconds
+        window_overlap_ratio: Overlap ratio between consecutive windows
+        
+    Returns:
+        list: List of separated source arrays
+    """
+    # audio = audio / np.max(np.abs(audio))
+    
+    clips, _ = process_audio_for_prediction(audio, clip_duration_seconds, window_overlap_ratio)
+    
+    separated_sources = [np.zeros((len(clips), clips.shape[1])) for _ in range(Config.MAX_SOURCES)]
+    
+    for i, clip in enumerate(clips):
+        clip_input = clip.reshape(1, -1, 1)
+        predictions = model.predict(clip_input)
+        for j in range(Config.MAX_SOURCES):
+            separated_sources[j][i] = predictions[0, j, :]
+    
+    reconstructed_sources = [
+        reconstruct_audio_from_clips(source, clip_duration_seconds, window_overlap_ratio)
+        for source in separated_sources
+    ]
+    
+    return reconstructed_sources
+
 def subtract_wav(source1, source2, mixed):
     mixed_, msr = librosa.load(mixed,mono=False)
     print(f"Mixed shape: {msr}")
@@ -219,6 +251,24 @@ def subtract_wav(source1, source2, mixed):
     
     return subtracted_1, subtracted_2, subtracted_pair
     
+def generate_prediction(model_dir, model_filename, audio_dir, audio_filename):
+    audio_file = os.path.join(audio_dir, audio_filename)
+
+    # audio, _ = process_audio_for_prediction(audio_file)
+    output_dir = os.path.join(audio_dir, "output")
+    os.makedirs(output_dir, exist_ok=True)
+    model = load_saved_model(model_dir, model_filename)
+    separated_sources = separate_audio(model, audio_file, clip_duration_seconds=1.0, window_overlap_ratio=0.25)
+    for i, source in enumerate(separated_sources):
+        sf.write(os.path.join(output_dir, f"source_{i+1}.wav"), source, 16000)
+
+def separate_mp4(video_dir, video_filename, audio_filename, start_time, length):
+    video_file = os.path.join(video_dir, video_filename)
+    print(f"Separating audio from {video_file}...")
+    audio = AudioSegment.from_file(video_file, "mp4")#[start_time * 1000:(start_time + length) * 1000]
+    audio = audio.set_frame_rate(16000)
+    audio.export(os.path.join(video_dir, audio_filename), format="wav")
+    return os.path.join(video_dir, audio_filename)
 
 if __name__ == "__main__":
     # subtracted_1, subtracted_2, subtracted_pair = subtract_wav("data/output/source_1.wav", "data/output/source_2.wav", "data/test_mix.wav")
@@ -229,6 +279,9 @@ if __name__ == "__main__":
     # clips_dir = "data/clips"
     # model, history = main(clips_dir)
 
-
-    model = load_saved_model("models/arbitrary", "wavelet_unet_37_0.0003")
-    test_separation(model, "data/test_mix.wav", "data/output")
+    # for testing with arbitrary model on test mix clip (already processed 1s clip)
+    # model = load_saved_model("models/arbitrary", "wavelet_unet_37_0.0003")
+    # test_separation(model, "data/test_mix.wav", "data/output")
+    
+    audio_path = separate_mp4(video_dir="data/joe", video_filename="joe.mp4", audio_filename="joe.wav", start_time=7, length=10)
+    generate_prediction(model_dir="models/arbitrary", model_filename="wavelet_unet_22_0.0002", audio_dir="data/joe", audio_filename="joe.wav")
