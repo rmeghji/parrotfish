@@ -362,7 +362,8 @@ def process_audio_for_prediction(audio_file, clip_duration_seconds=1.0, window_o
     print(audio_file)
 
     sr, audio = wavfile.read(str(audio_file))
-    audio = np.mean(audio, axis=1)
+    if audio.ndim > 1:
+        audio = np.mean(audio, axis=1)
     audio = audio / np.max(np.abs(audio))
 
     if sr != 16000:

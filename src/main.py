@@ -1,5 +1,6 @@
 import os
 import numpy as np
+from scipy.io import wavfile
 import tensorflow as tf
 import random
 from glob import glob
@@ -12,6 +13,7 @@ import pywt
 from utils.Pipeline import (
     create_tf_dataset,
     create_tf_dataset_from_tfrecords,
+    generate_sample_from_clips
 )
 from utils.config import Config
 from model import (
@@ -283,5 +285,14 @@ if __name__ == "__main__":
     # model = load_saved_model("models/arbitrary", "wavelet_unet_37_0.0003")
     # test_separation(model, "data/test_mix.wav", "data/output")
     
-    audio_path = separate_mp4(video_dir="data/joe", video_filename="joe.mp4", audio_filename="joe.wav", start_time=7, length=10)
-    generate_prediction(model_dir="models/arbitrary", model_filename="wavelet_unet_22_0.0002", audio_dir="data/joe", audio_filename="joe.wav")
+    # audio_path = separate_mp4(video_dir="data/joe", video_filename="joe.mp4", audio_filename="joe.wav", start_time=7, length=10)
+
+    ex1 = wavfile.read("data/ex2/true1.wav")[1]
+    ex2 = wavfile.read("data/ex2/true2.wav")[1]
+    sample = generate_sample_from_clips(ex1, ex2)
+    # print(sample)
+    sf.write("data/ex2/mixed.wav", sample.numpy()[0] , 16000)
+    # sf.write("data/ex/individual_1.wav", source[0], 16000)
+    # sf.write("data/ex/individual_2.wav", source[1], 16000)
+    # sf.write("data/ex/individual_3.wav", source[2], 16000)
+    generate_prediction(model_dir="models/arbitrary", model_filename="wavelet_unet_22_0.0002", audio_dir="data/ex2", audio_filename="mixed.wav")
