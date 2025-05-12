@@ -10,12 +10,15 @@ from itertools import combinations, permutations
 import soundfile as sf
 import librosa
 import pywt
+from scipy.signal import windows
+from scipy import optimize
+
 from utils.Pipeline import (
     create_tf_dataset,
     create_tf_dataset_from_tfrecords,
     generate_sample_from_clips
 )
-from utils.config import Config
+from utils.config import Config, RetrainConfig
 from model import (
     WaveletUNet,
     pit_loss,
@@ -29,7 +32,7 @@ from model import (
 from utils.data_preparation import process_audio_for_prediction, reconstruct_audio_from_clips
 from pydub import AudioSegment
 
-config = Config()
+config = RetrainConfig()
 
 def load_saved_model(model_dir, filename):
     """Load the model with multiple fallback options."""
@@ -239,6 +242,176 @@ def separate_audio(model, audio, clip_duration_seconds=1.0, window_overlap_ratio
     
     return reconstructed_sources
 
+def correlation_score(x, y, mode='pearson'):
+    """
+    Calculate correlation between two signals.
+    
+    Args:
+        x: First signal
+        y: Second signal
+        mode: Type of correlation ('pearson', 'energy', 'cosine')
+        
+    Returns:
+        float: Correlation score
+    """
+    # Ensure input arrays are 1D
+    x = x.flatten()
+    y = y.flatten()
+    
+    if mode == 'pearson':
+        # Pearson correlation coefficient
+        x_centered = x - np.mean(x)
+        y_centered = y - np.mean(y)
+        numerator = np.sum(x_centered * y_centered)
+        denominator = np.sqrt(np.sum(x_centered**2) * np.sum(y_centered**2))
+        if denominator < 1e-10:
+            return 0
+        return numerator / denominator
+    
+    elif mode == 'energy':
+        # Energy-based correlation (useful for audio with silence)
+        energy_x = np.sum(x**2)
+        energy_y = np.sum(y**2)
+        if energy_x < 1e-10 or energy_y < 1e-10:
+            return 0
+        return np.sum(x * y) / np.sqrt(energy_x * energy_y)
+    
+    elif mode == 'cosine':
+        # Cosine similarity
+        norm_x = np.linalg.norm(x)
+        norm_y = np.linalg.norm(y)
+        if norm_x < 1e-10 or norm_y < 1e-10:
+            return 0
+        return np.dot(x, y) / (norm_x * norm_y)
+    
+    else:
+        raise ValueError(f"Unknown correlation mode: {mode}")
+
+def find_optimal_source_assignment(current_sources, next_sources, overlap_size):
+    """
+    Find the optimal assignment of sources in the next frame to match the current frame sources.
+    
+    Args:
+        current_sources: numpy array of shape (num_sources, samples_per_clip)
+        next_sources: numpy array of shape (num_sources, samples_per_clip)
+        overlap_size: Number of samples in the overlap region
+        
+    Returns:
+        list: Optimal permutation of source indices
+    """
+    num_sources = current_sources.shape[0]
+    
+    # Calculate correlation matrix
+    correlation_matrix = np.zeros((num_sources, num_sources))
+    
+    for i in range(num_sources):
+        for j in range(num_sources):
+            # Calculate correlation in the overlap region
+            current_overlap = current_sources[i, -overlap_size:]
+            next_overlap = next_sources[j, :overlap_size]
+                  
+            correlation_matrix[i, j] = correlation_score(current_overlap, next_overlap, mode='energy')
+    
+    # Hungarian algorithm to find optimal assignment that maximizes correlation
+    row_ind, col_ind = optimize.linear_sum_assignment(-correlation_matrix)
+    
+    # Return the optimal permutation
+    return col_ind
+
+def separate_audio_with_consistent_tracking(model, audio, clip_duration_seconds=1.0, 
+                                          window_overlap_ratio=0.25, sample_rate=22050):
+    """
+    Separate audio into sources using overlapping windows with consistent source tracking.
+    
+    Args:
+        model: The trained separation model
+        audio: Input audio array or path
+        clip_duration_seconds: Duration of each clip in seconds
+        window_overlap_ratio: Overlap ratio between consecutive windows
+        sample_rate: Audio sample rate
+        
+    Returns:
+        list: List of separated source arrays
+    """
+    # Process audio into overlapping clips
+    clips, audio_data = process_audio_for_prediction(
+        audio, clip_duration_seconds, window_overlap_ratio, sample_rate
+    )
+    
+    num_clips = clips.shape[0]
+    samples_per_clip = clips.shape[1]
+    step_size = int(samples_per_clip * (1 - window_overlap_ratio))
+    overlap_size = samples_per_clip - step_size
+    
+    # Predict sources for all clips
+    all_predictions = []
+    for i, clip in enumerate(clips):
+        clip_input = clip.reshape(1, -1, 1)  # Adjust shape based on your model input requirements
+        predictions = model.predict(clip_input, verbose=0)
+        
+        # Extract predictions - adjust based on your model's output format
+        if isinstance(predictions, list):
+            # Multiple output model
+            predictions = predictions[0]  # Assuming first output is the source separation
+        
+        # Reshape if needed - adjust based on your model's output format
+        if len(predictions.shape) == 3:
+            # Shape: (batch, time, sources)
+            predictions = np.transpose(predictions[0], (1, 0))  # to (sources, time)
+        elif len(predictions.shape) == 2:
+            # Shape: (batch, time*sources)
+            predictions = predictions[0].reshape(Config.MAX_SOURCES, -1)
+        
+        all_predictions.append(predictions)
+    
+    # Initialize source order mapping for consistent tracking
+    source_order = np.arange(Config.MAX_SOURCES)
+    
+    # Apply consistent source tracking
+    aligned_predictions = []
+    aligned_predictions.append(all_predictions[0][source_order])
+    
+    for i in range(1, num_clips):
+        # Find optimal mapping between current and next frame sources
+        optimal_perm = find_optimal_source_assignment(
+            aligned_predictions[-1], all_predictions[i], overlap_size
+        )
+        
+        # Update source order based on optimal permutation
+        source_order = optimal_perm
+        
+        # Apply the source order mapping
+        aligned_predictions.append(all_predictions[i][source_order])
+    
+    # Reconstruct full audio for each source
+    reconstructed_sources = []
+    
+    # Create window function for smooth blending
+    window = windows.hann(samples_per_clip)
+    window = window_overlap_ratio * window + (1 - window_overlap_ratio)
+    
+    for source_idx in range(Config.MAX_SOURCES):
+        # Calculate total length of output
+        total_length = (num_clips - 1) * step_size + samples_per_clip
+        output = np.zeros(total_length)
+        normalization = np.zeros(total_length)
+        
+        for i in range(num_clips):
+            start = i * step_size
+            end = start + samples_per_clip
+            
+            # Apply window for smooth blending
+            output[start:end] += aligned_predictions[i][source_idx] * window
+            normalization[start:end] += window
+        
+        # Normalize to avoid amplitude changes due to overlapping
+        mask = normalization > 1e-10
+        output[mask] /= normalization[mask]
+        
+        reconstructed_sources.append(output)
+    
+    return reconstructed_sources
+
 def subtract_wav(source1, source2, mixed):
     mixed_, msr = librosa.load(mixed,mono=False)
     print(f"Mixed shape: {msr}")
@@ -253,14 +426,20 @@ def subtract_wav(source1, source2, mixed):
     
     return subtracted_1, subtracted_2, subtracted_pair
     
-def generate_prediction(model_dir, model_filename, audio_dir, audio_filename):
+def generate_prediction(model_dir, model_filename, audio_dir, audio_filename, clip_duration_seconds=1.0, window_overlap_ratio=0.25):
     audio_file = os.path.join(audio_dir, audio_filename)
 
     # audio, _ = process_audio_for_prediction(audio_file)
     output_dir = os.path.join(audio_dir, "output")
     os.makedirs(output_dir, exist_ok=True)
     model = load_saved_model(model_dir, model_filename)
-    separated_sources = separate_audio(model, audio_file, clip_duration_seconds=1.0, window_overlap_ratio=0.25)
+    # separated_sources = separate_audio(model, audio_file, clip_duration_seconds=1.0, window_overlap_ratio=0.25)
+    
+    
+    separated_sources = separate_audio_with_consistent_tracking(
+        model, audio_file, clip_duration_seconds, window_overlap_ratio
+    )
+    
     for i, source in enumerate(separated_sources):
         sf.write(os.path.join(output_dir, f"source_{i+1}.wav"), source, 16000)
 
@@ -272,6 +451,8 @@ def separate_mp4(video_dir, video_filename, audio_filename, start_time, length):
     audio.export(os.path.join(video_dir, audio_filename), format="wav")
     return os.path.join(video_dir, audio_filename)
 
+
+
 if __name__ == "__main__":
     # subtracted_1, subtracted_2, subtracted_pair = subtract_wav("data/output/source_1.wav", "data/output/source_2.wav", "data/test_mix.wav")
     # sf.write("data/output/subtracted_1.wav", subtracted_1, 22050)
@@ -282,7 +463,7 @@ if __name__ == "__main__":
     # model, history = main(clips_dir)
 
     # for testing with arbitrary model on test mix clip (already processed 1s clip)
-    # model = load_saved_model("models/arbitrary", "wavelet_unet_37_0.0003")
+    # model = load_saved_model("models", "wavelet_unet_22_0.0002")
     # test_separation(model, "data/test_mix.wav", "data/output")
     
     # audio_path = separate_mp4(video_dir="data/joe", video_filename="joe.mp4", audio_filename="joe.wav", start_time=7, length=10)
