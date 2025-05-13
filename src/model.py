@@ -9,7 +9,7 @@ from itertools import combinations, permutations
 import soundfile as sf
 import librosa
 import pywt
-from .config import Config
+from utils.config import Config
 
 config = Config()
 
