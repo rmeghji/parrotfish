@@ -218,7 +218,7 @@ def create_tf_dataset(base_dir, clips_dir, num_speakers, batch_size=32, wavelet_
 
     return dataset.prefetch(tf.data.AUTOTUNE)
 
-def create_tf_dataset_from_tfrecords(tfrecord_files, max_sources, batch_size=128, is_train=True):
+def create_tf_dataset_from_tfrecords(tfrecord_files, min_sources=1, max_sources=3, batch_size=128, is_train=True):
     """Create a TensorFlow dataset from TFRecord files containing audio data
     Optimized for GPU execution on A100
     
@@ -282,10 +282,10 @@ def create_tf_dataset_from_tfrecords(tfrecord_files, max_sources, batch_size=128
         mixed_audio = tf.zeros((batch_size, samples_per_clip, 1), dtype=tf.float32)
         separated_audio = tf.zeros((batch_size, max_sources, samples_per_clip, 1), dtype=tf.float32)
         
-        # Generate random number of sources for each batch item (between 1 and max_sources)
+        # Generate random number of sources for each batch item (between min_sources and max_sources)
         num_sources_per_batch = tf.random.uniform(
             shape=(batch_size,),
-            minval=1,
+            minval=min_sources,
             maxval=max_sources + 1,
             dtype=tf.int32
         )

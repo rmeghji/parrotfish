@@ -138,9 +138,9 @@ class RetrainConfig:
     CACHE_REFRESH_EVERY = 5
     
     # Mixture generation
-    MIN_SOURCES = 1
+    MIN_SOURCES = 2
     MAX_SOURCES = 3 # first curriculum learning
-    NUM_EXAMPLES = BATCH_SIZE * 4000
+    NUM_EXAMPLES = BATCH_SIZE * 5000
     
     # Wavelet settings
     WAVELET_FAMILY = 'db4'  # Daubechies wavelet with 4 vanishing moments

@@ -385,6 +385,8 @@ def separate_audio_with_consistent_tracking(model, audio, clip_duration_seconds=
     
     # Reconstruct full audio for each source
     reconstructed_sources = []
+    print(aligned_predictions.shape)    
+    
     
     # Create window function for smooth blending
     window = windows.hann(samples_per_clip)
@@ -401,6 +403,8 @@ def separate_audio_with_consistent_tracking(model, audio, clip_duration_seconds=
             end = start + samples_per_clip
             
             # Apply window for smooth blending
+            print(np.array(aligned_predictions[i][source_idx]).shape)
+            
             output[start:end] += aligned_predictions[i][source_idx] * window
             normalization[start:end] += window
         
@@ -437,7 +441,7 @@ def generate_prediction(model_dir, model_filename, audio_dir, audio_filename, cl
     
     
     separated_sources = separate_audio_with_consistent_tracking(
-        model, audio_file, clip_duration_seconds, window_overlap_ratio
+        model, audio_file, clip_duration_seconds, window_overlap_ratio, sample_rate=16000
     )
     
     for i, source in enumerate(separated_sources):
@@ -467,13 +471,10 @@ if __name__ == "__main__":
     # test_separation(model, "data/test_mix.wav", "data/output")
     
     # audio_path = separate_mp4(video_dir="data/joe", video_filename="joe.mp4", audio_filename="joe.wav", start_time=7, length=10)
+    generate_prediction(model_dir="models/arbitrary", model_filename="wavelet_unet_22_0.0002", audio_dir="data/joe", audio_filename="joe.wav")
 
-    ex1 = wavfile.read("data/ex2/true1.wav")[1]
-    ex2 = wavfile.read("data/ex2/true2.wav")[1]
-    sample = generate_sample_from_clips(ex1, ex2)
-    # print(sample)
-    sf.write("data/ex2/mixed.wav", sample.numpy()[0] , 16000)
-    # sf.write("data/ex/individual_1.wav", source[0], 16000)
-    # sf.write("data/ex/individual_2.wav", source[1], 16000)
-    # sf.write("data/ex/individual_3.wav", source[2], 16000)
-    generate_prediction(model_dir="models/arbitrary", model_filename="wavelet_unet_22_0.0002", audio_dir="data/ex2", audio_filename="mixed.wav")
+    # ex1 = wavfile.read("data/ex2/true1.wav")[1]
+    # ex2 = wavfile.read("data/ex2/true2.wav")[1]
+    # sample = generate_sample_from_clips(ex1, ex2)
+    # sf.write("data/ex2/mixed.wav", sample.numpy()[0] , 16000)
+    # generate_prediction(model_dir="models/arbitrary", model_filename="wavelet_unet_22_0.0002", audio_dir="data/ex2", audio_filename="mixed.wav")

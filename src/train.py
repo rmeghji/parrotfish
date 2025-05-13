@@ -72,11 +72,16 @@ def get_callbacks(save_directory, config):
             monitor='val_loss',
             factor=0.5,
             patience=5,
-            min_lr=1e-6,
+            min_lr=1e-7,
             verbose=1
         ),
         tf.keras.callbacks.TensorBoard(
             log_dir=os.path.join(config.CHECKPOINT_DIR, 'logs'),
+            histogram_freq=1,
+            update_freq='epoch'
+        ),
+        tf.keras.callbacks.TensorBoard(
+            log_dir=os.path.join(save_directory, 'logs'),
             histogram_freq=1,
             update_freq='epoch'
         )
@@ -89,8 +94,6 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, model=N
         config = RetrainConfig()
     else:
         config = Config()
-
-    max_sources = config.MAX_SOURCES
         
     tf.config.optimizer.set_jit(True)
     # tf.keras.mixed_precision.set_global_policy('mixed_float16')
@@ -113,7 +116,7 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, model=N
         dataset = create_tf_dataset(
             base_dir=config.DATA_DIR,
             clips_dir=clips_dir,
-            num_speakers=max_sources,
+            num_speakers=config.MAX_SOURCES,
             batch_size=config.BATCH_SIZE
         )
         train_dataset = dataset.take(train_steps).repeat()
@@ -134,13 +137,16 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, model=N
 
         train_dataset = create_tf_dataset_from_tfrecords(
             tfrecord_files=train_records,
-            max_sources=max_sources,
+            min_sources=config.MIN_SOURCES,
+            max_sources=config.MAX_SOURCES,
             batch_size=config.BATCH_SIZE,
             is_train=True
         )
         val_dataset = create_tf_dataset_from_tfrecords(
             tfrecord_files=val_records,
-            max_sources=max_sources,
+            # min_sources=config.MIN_SOURCES,
+            min_sources=1,
+            max_sources=config.MAX_SOURCES,
             batch_size=config.BATCH_SIZE,
             is_train=False
         )
@@ -171,7 +177,7 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, model=N
             merge_filter_size=config.MERGE_FILTER_SIZE,
             l1_reg=config.L1_REG,
             l2_reg=config.L2_REG,
-            max_sources=max_sources,
+            max_sources=config.MAX_SOURCES,
             wavelet_family=config.WAVELET_FAMILY
         )
     
