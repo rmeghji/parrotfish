@@ -130,7 +130,7 @@ class RetrainConfig:
     L2_REG = 0 *1e-6
     
     # Training settings
-    LEARNING_RATE = 1e-5 # DECREASE TO 1e-5
+    LEARNING_RATE = 1e-4 # DECREASE TO 1e-5
     EPOCHS = 100
     VAL_SPLIT = 0.1
     CHECKPOINT_DIR = "checkpoints"

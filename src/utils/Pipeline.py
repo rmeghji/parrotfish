@@ -234,19 +234,16 @@ def create_tf_dataset_from_tfrecords(tfrecord_files, min_sources=1, max_sources=
     """
     
     samples_per_clip = 16000
-    
-    # Set dataset options for optimal performance
     options = tf.data.Options()
     options.experimental_optimization.map_parallelization = True
     options.experimental_optimization.map_fusion = True
     options.experimental_optimization.parallel_batch = True
     options.threading.max_intra_op_parallelism = 8
     options.threading.private_threadpool_size = 32
-    options.experimental_deterministic = False  # Allow non-deterministic ordering for better performance
+    options.experimental_deterministic = False
     
-    # @tf.function(jit_compile=True)  # Enable XLA compilation
     def _parse_tfrecord(example_proto):
-        """Parse a single TFRecord example with GPU acceleration"""
+        """Parse one TFRecord example"""
         feature_description = {
             'audio_binary': tf.io.FixedLenFeature([], tf.string),
             'path': tf.io.FixedLenFeature([], tf.string)
@@ -256,7 +253,6 @@ def create_tf_dataset_from_tfrecords(tfrecord_files, min_sources=1, max_sources=
         waveform = audio_tensor.audio
         current_length = tf.shape(waveform)[0]
         
-        # Use tf.cond instead of Python if/else for GPU execution
         def pad_waveform():
             padding = [[0, samples_per_clip - current_length], [0, 0]]
             return tf.pad(waveform, padding)
@@ -270,19 +266,16 @@ def create_tf_dataset_from_tfrecords(tfrecord_files, min_sources=1, max_sources=
             trim_waveform
         )
         
-        # Ensure proper shape
         return tf.reshape(waveform, (samples_per_clip, 1))
 
-    @tf.function(jit_compile=True)  # Enable XLA compilation
+    @tf.function(jit_compile=True)
     def _prepare_batch(waveforms):
-        """Prepare a batch of waveforms with GPU acceleration"""
+        """Prepare a batch of waveforms"""
         batch_size = tf.shape(waveforms)[0]
         
-        # Pre-allocate output tensors
         mixed_audio = tf.zeros((batch_size, samples_per_clip, 1), dtype=tf.float32)
         separated_audio = tf.zeros((batch_size, max_sources, samples_per_clip, 1), dtype=tf.float32)
         
-        # Generate random number of sources for each batch item (between min_sources and max_sources)
         num_sources_per_batch = tf.random.uniform(
             shape=(batch_size,),
             minval=min_sources,
@@ -290,35 +283,24 @@ def create_tf_dataset_from_tfrecords(tfrecord_files, min_sources=1, max_sources=
             dtype=tf.int32
         )
         
-        # Create a mask for valid sources
         source_indices = tf.range(max_sources, dtype=tf.int32)
         source_mask = tf.expand_dims(source_indices, 0) < tf.expand_dims(num_sources_per_batch, 1)
         
-        # Generate mixing weights only for valid sources
-        weights = tf.random.uniform((batch_size, max_sources), minval=0.67, maxval=1.33)
+        weights = tf.random.uniform((batch_size, max_sources), minval=0.5, maxval=1.5)
         weights = weights * tf.cast(source_mask, tf.float32)
         weights = weights / tf.reduce_sum(weights, axis=1, keepdims=True)
         
-        # Generate indices for all possible sources
         all_indices = tf.random.uniform((batch_size, max_sources), 0, batch_size, dtype=tf.int32)
         
-        # Process all potential sources
         for i in range(max_sources):
-            # Extract indices for current source
+            indices = all_indices[:, i]
             indices = all_indices[:, i]
             
-            # Gather waveforms for this source
             selected_waveforms = tf.gather(waveforms, indices)
-            
-            # Apply weights
             batch_weights = tf.reshape(weights[:, i], (batch_size, 1, 1))
             weighted_waveforms = selected_waveforms * batch_weights
-            
-            # Add to mixed audio (only for valid sources)
             source_mask_i = tf.reshape(source_mask[:, i], (batch_size, 1, 1))
             mixed_audio += weighted_waveforms * tf.cast(source_mask_i, tf.float32)
-            
-            # Update separated audio tensor
             update_indices = tf.stack([tf.range(batch_size), tf.fill((batch_size,), i)], axis=1)
             separated_audio = tf.tensor_scatter_nd_update(
                 separated_audio,
@@ -328,66 +310,23 @@ def create_tf_dataset_from_tfrecords(tfrecord_files, min_sources=1, max_sources=
         
         return mixed_audio, separated_audio
 
-    # Create dataset with optimized settings
     dataset = tf.data.TFRecordDataset(
         tfrecord_files, 
         compression_type='GZIP', 
         num_parallel_reads=tf.data.AUTOTUNE,
-        buffer_size=16 * 1024 * 1024  # 16MB buffer for better throughput
+        buffer_size=16 * 1024 * 1024
     )
     
-    # Apply options
     dataset = dataset.with_options(options)
-    
-    # Parse records in parallel
     dataset = dataset.map(_parse_tfrecord, num_parallel_calls=tf.data.AUTOTUNE)
-    
-    # Cache after parsing to avoid repeated decoding
     dataset = dataset.cache()
-    
     if is_train:
-        # Use larger shuffle buffer for A100
         dataset = dataset.shuffle(buffer_size=50000)
         dataset = dataset.repeat()
-    
-    # Use larger batch size for A100
     dataset = dataset.batch(batch_size)
-    
-    # Apply batch processing with GPU acceleration
     dataset = dataset.map(_prepare_batch, num_parallel_calls=tf.data.AUTOTUNE)
-    
-    # Prefetch to overlap processing and training
     dataset = dataset.prefetch(tf.data.AUTOTUNE)
-    
     return dataset
-
-def get_random_files(self):
-        """Get random files without loading entire directory"""
-        all_files = []
-        max_attempts = 10
-        attempts = 0
-        
-        while len(all_files) < self.num_speakers and attempts < max_attempts:
-            subfolder = f"{random.randint(0, 499):03d}"
-            subfolder_path = self.clips_dir / subfolder
-            
-            if not subfolder_path.exists():
-                attempts += 1
-                continue
-            
-            files = [f for f in os.listdir(subfolder_path) if f.endswith('.wav')]
-            if not files:
-                attempts += 1
-                continue
-            
-            needed = self.num_speakers - len(all_files)
-            batch_samples = random.sample(files, min(needed, len(files)))
-            all_files.extend(f"{subfolder}/{f}" for f in batch_samples)
-        
-        if len(all_files) < self.num_speakers:
-            print(f"Warning: Could only find {len(all_files)} valid files")
-        
-        return all_files
     
 def generate_sample_from_clips(clip1, clip2):
     """Mix multiple 1-second clips together (using this to generate one example right now can delete later)

@@ -223,10 +223,7 @@ def separate_audio(model, audio, clip_duration_seconds=1.0, window_overlap_ratio
     Returns:
         list: List of separated source arrays
     """
-    # audio = audio / np.max(np.abs(audio))
-    
     clips, _ = process_audio_for_prediction(audio, clip_duration_seconds, window_overlap_ratio)
-    
     separated_sources = [np.zeros((len(clips), clips.shape[1])) for _ in range(Config.MAX_SOURCES)]
     
     for i, clip in enumerate(clips):
@@ -415,20 +412,6 @@ def separate_audio_with_consistent_tracking(model, audio, clip_duration_seconds=
         reconstructed_sources.append(output)
     
     return reconstructed_sources
-
-def subtract_wav(source1, source2, mixed):
-    mixed_, msr = librosa.load(mixed,mono=False)
-    print(f"Mixed shape: {msr}")
-    source1_, s1sr = librosa.load(source1,mono=False)
-    print(f"Source 1 shape: {s1sr}")
-    source2_, s2sr = librosa.load(source2,mono=False)
-    print(f"Source 2 shape: {s2sr}")
-
-    subtracted_1 = mixed_ - source1_ 
-    subtracted_2 = mixed_ - source2_ 
-    subtracted_pair = source1_ - source2_
-    
-    return subtracted_1, subtracted_2, subtracted_pair
     
 def generate_prediction(model_dir, model_filename, audio_dir, audio_filename, clip_duration_seconds=1.0, window_overlap_ratio=0.25):
     audio_file = os.path.join(audio_dir, audio_filename)
@@ -458,14 +441,6 @@ def separate_mp4(video_dir, video_filename, audio_filename, start_time, length):
 
 
 if __name__ == "__main__":
-    # subtracted_1, subtracted_2, subtracted_pair = subtract_wav("data/output/source_1.wav", "data/output/source_2.wav", "data/test_mix.wav")
-    # sf.write("data/output/subtracted_1.wav", subtracted_1, 22050)
-    # sf.write("data/output/subtracted_2.wav", subtracted_2, 22050)
-    # sf.write("data/output/subtracted_pair.wav", subtracted_pair, 22050)
-    # Run the main pipeline
-    # clips_dir = "data/clips"
-    # model, history = main(clips_dir)
-
     # for testing with arbitrary model on test mix clip (already processed 1s clip)
     # model = load_saved_model("models", "wavelet_unet_22_0.0002")
     # test_separation(model, "data/test_mix.wav", "data/output")

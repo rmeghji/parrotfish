@@ -96,18 +96,12 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, model=N
         config = Config()
         
     tf.config.optimizer.set_jit(True)
-    # tf.keras.mixed_precision.set_global_policy('mixed_float16')
     for device in tf.config.list_physical_devices('GPU'):
         try:
             tf.config.experimental.set_memory_growth(device, True)
             print(f"Memory growth enabled for {device}")
         except RuntimeError as e:
-            # Memory growth must be set before GPUs have been initialized
             print(f"Error setting memory growth: {e}")  
-    
-    # Set thread optimizations
-    # tf.config.threading.set_inter_op_parallelism_threads(2)
-    # tf.config.threading.set_intra_op_parallelism_threads(2)
     
     print("Starting audio source separation pipeline...")
 
@@ -159,13 +153,9 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, model=N
     
     print(f"Training dataset created with {train_size} examples")
     print(f"Validation dataset created with {int(config.NUM_EXAMPLES * config.VAL_SPLIT)} examples")
-    
     print("Creating Wavelet U-Net model...")
     
-    # FROM_SCRATCH = False
-    
     if model is None:
-        # FROM_SCRATCH = True
         model = WaveletUNet(
             num_coeffs=config.NUM_COEFFS,
             wavelet_depth=config.WAVELET_DEPTH,
@@ -218,7 +208,7 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, model=N
     save_model(model, config, save_directory)
     plot_model(history, config, save_directory)
     
-    print("Wavelet U-Net pipeline completed successfully!")
+    print("Wavelet U-Net training completed successfully!")
     return model, history
 
 if __name__ == "__main__":
