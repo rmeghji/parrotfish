@@ -330,7 +330,86 @@ def process_audio_files(base_folder, output_folder, clip_duration_seconds=1.0, w
     else:
         print(f"Generated approximately {total_clips} clips distributed across subfolders in {output_folder}")
 
-def process_audio_for_prediction(audio, clip_duration_seconds=1.0, window_overlap_ratio=0.25, sample_rate=22050):
+# def process_audio_for_prediction(audio_file, clip_duration_seconds=1.0, window_overlap_ratio=0.25):
+#     """
+#     Process a single audio file into overlapping clips suitable for model prediction.
+#     The clips are designed to be reconstructed back into the full audio after prediction.
+    
+#     Args:
+#         audio_file: Path to the input audio file
+#         clip_duration_seconds: Duration of each clip in seconds
+#         window_overlap_ratio: Overlap ratio between consecutive windows
+        
+#     Returns:
+#         tuple: (clips, sample_rate)
+#             - clips: numpy array of shape (num_clips, samples_per_clip) containing the audio clips
+#             - sample_rate: The sample rate of the audio file
+#     """
+#     # processor = AudioProcessor(
+#     #     clip_duration_seconds=clip_duration_seconds,
+#     #     window_overlap_ratio=window_overlap_ratio
+#     # )
+    
+#     # audio = processor.load_and_normalize_audio(audio_file)
+#     # audio, sr = sf.read(audio_file)
+#     # audio = np.mean(audio, axis=1)
+#     # audio, sr = librosa.load(audio_file, sr=16000, mono=False)
+#     # audio = np.array(audio)
+#     # audio = audio[0]
+#     # assert audio.shape[0] == 160000
+#     # audio, sr = sf.read(audio_file)
+
+#     print(audio_file)
+
+#     audio, sr = sf.read(str(audio_file))
+#     audio = np.mean(audio, axis=1)
+#     audio = audio / np.max(np.abs(audio))
+
+#     if sr != 16000:
+#         print(f"SR is not 16000: {sr}")
+#         audio = librosa.resample(audio, sr, 16000)
+#     if audio is None:
+#         print(f"Error: Failed to load audio file {audio_file}")
+#         return None, None
+    
+#     samples_per_clip = int(16000)
+#     step_size = int(samples_per_clip * (1 - window_overlap_ratio))
+    
+#     num_clips = int(max(1, (len(audio) - samples_per_clip) // step_size + 1))
+    
+#     clips = np.zeros((num_clips, samples_per_clip))
+    
+#     # Create COLA-normalized window
+#     window = windows.hann(samples_per_clip)
+#     window = window_overlap_ratio * window + (1 - window_overlap_ratio)
+    
+#     # Calculate COLA normalization factor
+#     cola_denominator = np.zeros(len(audio))
+#     for i in range(num_clips):
+#         start = i * step_size
+#         end = start + samples_per_clip
+#         if end <= len(cola_denominator):
+#             cola_denominator[start:end] += window
+#         else:
+#             cola_denominator[start:] += window[:len(cola_denominator)-start]
+    
+#     # Ensure we don't divide by zero
+#     cola_denominator = np.maximum(cola_denominator, 1e-6)
+    
+#     for i in range(num_clips):
+#         start = i * step_size
+#         end = start + samples_per_clip
+        
+#         if end <= len(audio):
+#             clip = audio[start:end]
+#         else:
+#             clip = np.pad(audio[start:], (0, end - len(audio)))
+        
+#         clips[i] = clip * window / cola_denominator[start:end]
+    
+#     return clips, audio
+
+def process_audio_for_prediction(audio, clip_duration_seconds=1.0, window_overlap_ratio=0.25, sample_rate=16000):
     """
     Process audio into overlapping clips for prediction.
     
@@ -346,7 +425,7 @@ def process_audio_for_prediction(audio, clip_duration_seconds=1.0, window_overla
             - audio_data: The original audio data
     """
     if isinstance(audio, str):
-        audio_data, sr = sf.read(audio)
+        audio_data, sr = librosa.load(audio, sr=16000)
         if sr != sample_rate:
             print(f"Warning: Audio sample rate ({sr}) doesn't match expected rate ({sample_rate})")
     else:
@@ -355,7 +434,13 @@ def process_audio_for_prediction(audio, clip_duration_seconds=1.0, window_overla
     # convert to mono
     if len(audio_data.shape) > 1 and audio_data.shape[1] > 1:
         audio_data = audio_data.mean(axis=1)
+        
+    # normalize audio
+    audio_data = audio_data.astype(np.float32)
+    audio_data = audio_data / np.max(np.abs(audio_data) + 1e-10)
     
+    
+    # Calculate clip sizes
     samples_per_clip = int(clip_duration_seconds * sample_rate)
     step_size = int(samples_per_clip * (1 - window_overlap_ratio))
     num_clips = max(1, (len(audio_data) - samples_per_clip) // step_size + 1)
