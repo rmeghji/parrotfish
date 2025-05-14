@@ -223,7 +223,7 @@ class AudioProcessor:
                 print(f"Waiting {pause_duration} seconds before next batch...")
                 time.sleep(pause_duration)
 
-def process_audio_files(base_folder, output_folder, clip_duration_seconds=1.0, window_overlap_ratio=0.5, batch_size=100, save_as_tfrecords=False):
+def process_audio_files(base_folder, output_folder, clip_duration_seconds=1.0, window_overlap_ratio=0.1, batch_size=100, save_as_tfrecords=False):
     """
     Process all audio files in a folder and save clips to either output folder with subfolder distribution for use as training data. 
     If save_as_tfrecords is True, saves output as TFRecords spread evenly across 500 TFRecords files.
@@ -424,46 +424,62 @@ def process_audio_for_prediction(audio, clip_duration_seconds=1.0, window_overla
             - clips: numpy array of shape (num_clips, samples_per_clip) containing the audio clips
             - audio_data: The original audio data
     """
-    if isinstance(audio, str):
-        audio_data, sr = librosa.load(audio, sr=16000)
-        if sr != sample_rate:
-            print(f"Warning: Audio sample rate ({sr}) doesn't match expected rate ({sample_rate})")
-    else:
-        audio_data = audio
     
-    # convert to mono
-    if len(audio_data.shape) > 1 and audio_data.shape[1] > 1:
-        audio_data = audio_data.mean(axis=1)
+    processor = AudioProcessor(
+        clip_duration_seconds=clip_duration_seconds,
+        window_overlap_ratio=0.1
+    )
+    
+    audio = processor.load_and_normalize_audio(audio)
+    if audio is None:
+        print(f"Error: Failed to load audio file {audio}")
+        return None, None
+    
+    clips = processor.split_into_clips(audio)
+    
+    return clips, audio
+    
+    
+    # if isinstance(audio, str):
+    #     audio_data, sr = librosa.load(audio, sr=16000)
+    #     if sr != sample_rate:
+    #         print(f"Warning: Audio sample rate ({sr}) doesn't match expected rate ({sample_rate})")
+    # else:
+    #     audio_data = audio
+    
+    # # convert to mono
+    # if len(audio_data.shape) > 1 and audio_data.shape[1] > 1:
+    #     audio_data = audio_data.mean(axis=1)
         
-    # normalize audio
-    audio_data = audio_data.astype(np.float32)
-    audio_data = audio_data / np.max(np.abs(audio_data) + 1e-10)
+    # # normalize audio
+    # audio_data = audio_data.astype(np.float32)
+    # audio_data = audio_data / np.max(np.abs(audio_data) + 1e-10)
     
     
-    # Calculate clip sizes
-    samples_per_clip = int(clip_duration_seconds * sample_rate)
-    step_size = int(samples_per_clip * (1 - window_overlap_ratio))
-    num_clips = max(1, (len(audio_data) - samples_per_clip) // step_size + 1)
+    # # Calculate clip sizes
+    # samples_per_clip = int(clip_duration_seconds * sample_rate)
+    # step_size = int(samples_per_clip * (1 - window_overlap_ratio))
+    # num_clips = max(1, (len(audio_data) - samples_per_clip) // step_size + 1)
     
-    if num_clips == 0:
-        padded_audio = np.zeros(samples_per_clip)
-        padded_audio[:len(audio_data)] = audio_data
-        audio_data = padded_audio
-        num_clips = 1
+    # if num_clips == 0:
+    #     padded_audio = np.zeros(samples_per_clip)
+    #     padded_audio[:len(audio_data)] = audio_data
+    #     audio_data = padded_audio
+    #     num_clips = 1
     
-    clips = np.zeros((num_clips, samples_per_clip))
-    for i in range(num_clips):
-        start = i * step_size
-        end = start + samples_per_clip
+    # clips = np.zeros((num_clips, samples_per_clip))
+    # for i in range(num_clips):
+    #     start = i * step_size
+    #     end = start + samples_per_clip
         
-        if end > len(audio_data):
-            clip = np.zeros(samples_per_clip)
-            clip[:len(audio_data) - start] = audio_data[start:]
-            clips[i] = clip
-        else:
-            clips[i] = audio_data[start:end]
+    #     if end > len(audio_data):
+    #         clip = np.zeros(samples_per_clip)
+    #         clip[:len(audio_data) - start] = audio_data[start:]
+    #         clips[i] = clip
+    #     else:
+    #         clips[i] = audio_data[start:end]
     
-    return clips, audio_data
+    # return clips, audio_data
 
 
 def reconstruct_audio_from_clips(clips, clip_duration_seconds=1.0, window_overlap_ratio=0.25):
