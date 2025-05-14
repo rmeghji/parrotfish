@@ -223,7 +223,7 @@ class AudioProcessor:
                 print(f"Waiting {pause_duration} seconds before next batch...")
                 time.sleep(pause_duration)
 
-def process_audio_files(base_folder, output_folder, clip_duration_seconds=1.0, window_overlap_ratio=0.5, batch_size=100, save_as_tfrecords=False):
+def process_audio_files(base_folder, output_folder, clip_duration_seconds=1.0, window_overlap_ratio=0.1, batch_size=100, save_as_tfrecords=False):
     """
     Process all audio files in a folder and save clips to either output folder with subfolder distribution for use as training data. 
     If save_as_tfrecords is True, saves output as TFRecords spread evenly across 500 TFRecords files.
