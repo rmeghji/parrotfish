@@ -71,7 +71,7 @@ def get_callbacks(save_directory, config):
         tf.keras.callbacks.ReduceLROnPlateau(
             monitor='val_loss',
             factor=0.5,
-            patience=5,
+            patience=4,
             min_lr=1e-7,
             verbose=1
         ),
@@ -138,8 +138,8 @@ def train_model(clips_dir=None, tfrecords_dir=None, save_directory=None, model=N
         )
         val_dataset = create_tf_dataset_from_tfrecords(
             tfrecord_files=val_records,
-            # min_sources=config.MIN_SOURCES,
-            min_sources=1,
+            min_sources=config.MIN_SOURCES,
+            # min_sources=1,
             max_sources=config.MAX_SOURCES,
             batch_size=config.BATCH_SIZE,
             is_train=False
