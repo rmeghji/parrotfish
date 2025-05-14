@@ -345,12 +345,12 @@ def process_audio_for_prediction(audio_file, clip_duration_seconds=1.0, window_o
             - clips: numpy array of shape (num_clips, samples_per_clip) containing the audio clips
             - audio: numpy array of the original audio
     """
-    # processor = AudioProcessor(
-    #     clip_duration_seconds=clip_duration_seconds,
-    #     window_overlap_ratio=window_overlap_ratio
-    # )
+    processor = AudioProcessor(
+        clip_duration_seconds=clip_duration_seconds,
+        window_overlap_ratio=0.1
+    )
     
-    # audio = processor.load_and_normalize_audio(audio_file)
+    audio = processor.load_and_normalize_audio(audio_file)
     # audio, sr = sf.read(audio_file)
     # audio = np.mean(audio, axis=1)
     # audio, sr = librosa.load(audio_file, sr=16000, mono=False)
@@ -359,18 +359,18 @@ def process_audio_for_prediction(audio_file, clip_duration_seconds=1.0, window_o
     # assert audio.shape[0] == 160000
     # audio, sr = sf.read(audio_file)
 
-    print(audio_file)
+    # print(audio_file)
 
-    audio, sr = sf.read(str(audio_file))
-    audio = np.mean(audio, axis=1)
-    audio = audio / np.max(np.abs(audio))
+    # audio, sr = sf.read(str(audio_file))
+    # audio = np.mean(audio, axis=1)
+    # audio = audio / np.max(np.abs(audio))
 
-    if sr != 16000:
-        print(f"SR is not 16000: {sr}")
-        audio = librosa.resample(audio, sr, 16000)
-    if audio is None:
-        print(f"Error: Failed to load audio file {audio_file}")
-        return None, None
+    # if sr != 16000:
+    #     print(f"SR is not 16000: {sr}")
+    #     audio = librosa.resample(audio, sr, 16000)
+    # if audio is None:
+    #     print(f"Error: Failed to load audio file {audio_file}")
+    #     return None, None
     
     step_size = int(16000 * (1 - window_overlap_ratio))
     num_clips = max(1, (len(audio) - 16000) // step_size + 1)
