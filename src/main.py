@@ -306,17 +306,18 @@ def find_optimal_source_assignment(current_sources, next_sources, overlap_size):
             # Calculate correlation in the overlap region
             current_overlap = current_sources[i, -overlap_size:]
             next_overlap = next_sources[j, :overlap_size]
-                  
+            
+            # Use energy-based correlation that's more robust for audio signals
             correlation_matrix[i, j] = correlation_score(current_overlap, next_overlap, mode='energy')
     
-    # Hungarian algorithm to find optimal assignment that maximizes correlation
+    # Use the Hungarian algorithm to find optimal assignment that maximizes correlation
     row_ind, col_ind = optimize.linear_sum_assignment(-correlation_matrix)
     
     # Return the optimal permutation
     return col_ind
 
 def separate_audio_with_consistent_tracking(model, audio, clip_duration_seconds=1.0, 
-                                          window_overlap_ratio=0.25, sample_rate=22050):
+                                          window_overlap_ratio=0.25, sample_rate=16000):
     """
     Separate audio into sources using overlapping windows with consistent source tracking.
     
@@ -332,7 +333,7 @@ def separate_audio_with_consistent_tracking(model, audio, clip_duration_seconds=
     """
     # Process audio into overlapping clips
     clips, audio_data = process_audio_for_prediction(
-        audio, clip_duration_seconds, window_overlap_ratio, sample_rate
+        audio, clip_duration_seconds, window_overlap_ratio
     )
     
     num_clips = clips.shape[0]
@@ -340,64 +341,134 @@ def separate_audio_with_consistent_tracking(model, audio, clip_duration_seconds=
     step_size = int(samples_per_clip * (1 - window_overlap_ratio))
     overlap_size = samples_per_clip - step_size
     
+    print(f"Processing {num_clips} clips with {samples_per_clip} samples each")
+    print(f"Step size: {step_size}, Overlap size: {overlap_size}")
+    
     # Predict sources for all clips
     all_predictions = []
     for i, clip in enumerate(clips):
-        clip_input = clip.reshape(1, -1, 1)  # Adjust shape based on your model input requirements
+        print(f"Processing clip {i+1}/{num_clips}")
+        # Reshape for model input - adjust shape as needed for your model
+        clip_input = clip.reshape(1, -1, 1)
         predictions = model.predict(clip_input, verbose=0)
         
-        # Extract predictions - adjust based on your model's output format
+        # sum axis 1 index 0, 1 leave 2 alone
+        predictions = np.sum(predictions, axis=1)
+        
+        
+        # Debug information about prediction shape
+        print(f"Raw prediction shape: {[p.shape if hasattr(p, 'shape') else type(p) for p in predictions] if isinstance(predictions, list) else predictions.shape}")
+        
+        # Extract predictions based on model output format
         if isinstance(predictions, list):
-            # Multiple output model
-            predictions = predictions[0]  # Assuming first output is the source separation
+            # For models with multiple outputs, typically first output is source separation
+            source_preds = predictions[0]
+        else:
+            source_preds = predictions
+            
+        print(f"Source predictions shape: {source_preds.shape}")
         
-        # Reshape if needed - adjust based on your model's output format
-        if len(predictions.shape) == 3:
-            # Shape: (batch, time, sources)
-            predictions = np.transpose(predictions[0], (1, 0))  # to (sources, time)
-        elif len(predictions.shape) == 2:
-            # Shape: (batch, time*sources)
-            predictions = predictions[0].reshape(Config.MAX_SOURCES, -1)
+        # Store the raw predictions without reshaping yet
+        all_predictions.append(source_preds)
+    
+    # Based on the first prediction's shape, determine the format and reshape accordingly
+    sample_pred = all_predictions[0]
+    num_sources = Config.MAX_SOURCES
+    # Handle different model output formats
+    if len(sample_pred.shape) == 3:
+        # Shape is likely (batch_size, time_steps, num_sources)
         
-        all_predictions.append(predictions)
+        print(f"Detected format: (batch, sources, time) with {num_sources} sources")
+        
+        # Extract and reshape all predictions to (num_sources, time_steps)
+        extracted_predictions = []
+        for pred in all_predictions:
+            
+            extracted_predictions.append(pred[0])
+    elif len(sample_pred.shape) == 2:
+        # Could be (batch_size, time_steps*num_sources)
+        # Assuming we know num_sources from Config
+        
+        print(f"Detected format: (batch, time*sources) with {num_sources} sources")
+        
+        # Extract and reshape all predictions
+        extracted_predictions = []
+        for pred in all_predictions:
+            # Remove batch dimension and reshape to (sources, time)
+            extracted_predictions.append(pred[0].reshape(num_sources, -1))
+    else:
+        raise ValueError(f"Unexpected prediction shape: {sample_pred.shape}")
     
-    # Initialize source order mapping for consistent tracking
-    source_order = np.arange(Config.MAX_SOURCES)
+    print(f"Extracted prediction shapes: {[p.shape for p in extracted_predictions]}")
+    num_sources= 3
     
-    # Apply consistent source tracking
-    aligned_predictions = []
-    aligned_predictions.append(all_predictions[0][source_order])
+    aligned_predictions = [extracted_predictions[0]]  
+    
+    print("Beginning source tracking...")
     
     for i in range(1, num_clips):
-        # Find optimal mapping between current and next frame sources
-        optimal_perm = find_optimal_source_assignment(
-            aligned_predictions[-1], all_predictions[i], overlap_size
-        )
+        current_pred = aligned_predictions[-1]
+        next_pred = extracted_predictions[i]
         
-        # Update source order based on optimal permutation
-        source_order = optimal_perm
+        print(f"Aligning clip {i} - Current prediction shape: {current_pred.shape}, Next prediction shape: {next_pred.shape}")
         
-        # Apply the source order mapping
-        aligned_predictions.append(all_predictions[i][source_order])
+        # Create correlation matrix between the overlap regions
+        correlation_matrix = np.zeros((num_sources, num_sources))
+        
+        # Calculate correlation for each possible source pairing
+        for curr_idx in range(num_sources):
+            # Get the tail end of the current prediction for this source
+            curr_source_overlap = current_pred[curr_idx, -overlap_size:]
+            
+            for next_idx in range(num_sources):
+                # Get the beginning of the next prediction for this source
+                print(next_pred.shape)
+                print(f"Calculating correlation for current source {curr_idx} and next source {next_idx}")
+                next_source_overlap = next_pred[next_idx, :overlap_size]
+                
+                # Calculate correlation between these overlap regions
+                correlation_matrix[curr_idx, next_idx] = correlation_score(
+                    curr_source_overlap, next_source_overlap, mode='energy'
+                )
+        
+        print(f"Correlation matrix:\n{correlation_matrix}")
+        
+        # Find the optimal assignment that maximizes correlation
+        # Hungarian algorithm minimizes cost, so we negate the correlation values
+        row_ind, col_ind = optimize.linear_sum_assignment(-correlation_matrix)
+        
+        # col_ind contains the new order of sources that best matches the previous frame
+        print(f"Optimal assignment: {col_ind}")
+        
+        # Reorder the predictions according to the optimal assignment
+        reordered_pred = next_pred[col_ind]
+        aligned_predictions.append(reordered_pred)
+    
+    print("Source tracking complete. Reconstructing full audio...")
+    
+    # Create window function for smooth blending
+    window = windows.hann(samples_per_clip)
+    # Adjust window for overlap ratio (flat in the center)
+    window = window_overlap_ratio * window + (1 - window_overlap_ratio)
     
     # Reconstruct full audio for each source
     reconstructed_sources = []
     print(aligned_predictions.shape)    
     
     
-    # Create window function for smooth blending
-    window = windows.hann(samples_per_clip)
-    window = window_overlap_ratio * window + (1 - window_overlap_ratio)
+    # Calculate total length of the output
+    total_length = (num_clips - 1) * step_size + samples_per_clip
     
-    for source_idx in range(Config.MAX_SOURCES):
-        # Calculate total length of output
-        total_length = (num_clips - 1) * step_size + samples_per_clip
+    for source_idx in range(num_sources):
         output = np.zeros(total_length)
         normalization = np.zeros(total_length)
         
         for i in range(num_clips):
             start = i * step_size
             end = start + samples_per_clip
+            
+            # Get the aligned source data for this clip
+            source_data = aligned_predictions[i][source_idx]
             
             # Apply window for smooth blending
             print(np.array(aligned_predictions[i][source_idx]).shape)
@@ -411,9 +482,10 @@ def separate_audio_with_consistent_tracking(model, audio, clip_duration_seconds=
         
         reconstructed_sources.append(output)
     
+    print(f"Reconstruction complete. Generated {len(reconstructed_sources)} sources.")
     return reconstructed_sources
     
-def generate_prediction(model_dir, model_filename, audio_dir, audio_filename, clip_duration_seconds=1.0, window_overlap_ratio=0.25):
+def generate_prediction(model_dir, model_filename, audio_dir, audio_filename, clip_duration_seconds=1.0, window_overlap_ratio=0.5):
     audio_file = os.path.join(audio_dir, audio_filename)
 
     # audio, _ = process_audio_for_prediction(audio_file)
@@ -451,5 +523,9 @@ if __name__ == "__main__":
     # ex1 = wavfile.read("data/ex2/true1.wav")[1]
     # ex2 = wavfile.read("data/ex2/true2.wav")[1]
     # sample = generate_sample_from_clips(ex1, ex2)
+    # # print(sample)
     # sf.write("data/ex2/mixed.wav", sample.numpy()[0] , 16000)
-    # generate_prediction(model_dir="models/arbitrary", model_filename="wavelet_unet_22_0.0002", audio_dir="data/ex2", audio_filename="mixed.wav")
+    # sf.write("data/ex/individual_1.wav", source[0], 16000)
+    # sf.write("data/ex/individual_2.wav", source[1], 16000)
+    # sf.write("data/ex/individual_3.wav", source[2], 16000)
+    generate_prediction(model_dir="models", model_filename="wavelet_unet_22_0.0002", audio_dir="data", audio_filename="joe.wav")
