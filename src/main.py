@@ -420,12 +420,12 @@ def generate_prediction(model_dir, model_filename, audio_dir, audio_filename, cl
     output_dir = os.path.join(audio_dir, "output")
     os.makedirs(output_dir, exist_ok=True)
     model = load_saved_model(model_dir, model_filename)
-    # separated_sources = separate_audio(model, audio_file, clip_duration_seconds=1.0, window_overlap_ratio=0.25)
+    separated_sources = separate_audio(model, audio_file, clip_duration_seconds=1.0, window_overlap_ratio=0.25)
     
     
-    separated_sources = separate_audio_with_consistent_tracking(
-        model, audio_file, clip_duration_seconds, window_overlap_ratio, sample_rate=16000
-    )
+    # separated_sources = separate_audio_with_consistent_tracking(
+    #     model, audio_file, clip_duration_seconds, window_overlap_ratio, sample_rate=16000
+    # )
     
     for i, source in enumerate(separated_sources):
         sf.write(os.path.join(output_dir, f"source_{i+1}.wav"), source, 16000)
@@ -446,7 +446,7 @@ if __name__ == "__main__":
     # test_separation(model, "data/test_mix.wav", "data/output")
     
     # audio_path = separate_mp4(video_dir="data/joe", video_filename="joe.mp4", audio_filename="joe.wav", start_time=7, length=10)
-    generate_prediction(model_dir="models/arbitrary", model_filename="wavelet_unet_22_0.0002", audio_dir="data/joe", audio_filename="joe.wav")
+    generate_prediction(model_dir="models/arb_retrain", model_filename="wavelet_unet_21_0.0003", audio_dir="data/joe", audio_filename="joe.wav")
 
     # ex1 = wavfile.read("data/ex2/true1.wav")[1]
     # ex2 = wavfile.read("data/ex2/true2.wav")[1]
