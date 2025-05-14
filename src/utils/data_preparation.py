@@ -372,40 +372,77 @@ def process_audio_for_prediction(audio_file, clip_duration_seconds=1.0, window_o
         print(f"Error: Failed to load audio file {audio_file}")
         return None, None
     
-    samples_per_clip = int(16000)
-    step_size = int(samples_per_clip * (1 - window_overlap_ratio))
+    step_size = int(16000 * (1 - window_overlap_ratio))
+    num_clips = max(1, (len(audio) - 16000) // step_size + 1)
+    clips = split_into_clips_new(audio, 16000, step_size, num_clips)
     
-    num_clips = int(max(1, (len(audio) - samples_per_clip) // step_size + 1))
-    
-    clips = np.zeros((num_clips, samples_per_clip))
-    
-    window = windows.hann(samples_per_clip)
-    window = window_overlap_ratio * window + (1 - window_overlap_ratio)
-    
-    cola_denominator = np.zeros(len(audio))
-    for i in range(num_clips):
-        start = i * step_size
-        end = start + samples_per_clip
-        if end <= len(cola_denominator):
-            cola_denominator[start:end] += window
-        else:
-            cola_denominator[start:] += window[:len(cola_denominator)-start]
-    
-    cola_denominator = np.maximum(cola_denominator, 1e-6)
-    
-    for i in range(num_clips):
-        start = i * step_size
-        end = start + samples_per_clip
-        
-        if end <= len(audio):
-            clip = audio[start:end]
-        else:
-            clip = np.pad(audio[start:], (0, end - len(audio)))
-        
-        clips[i] = clip * window / cola_denominator[start:end]
     
     return clips, audio
+    
+    
+    # if isinstance(audio, str):
+    #     audio_data, sr = librosa.load(audio, sr=16000)
+    #     if sr != sample_rate:
+    #         print(f"Warning: Audio sample rate ({sr}) doesn't match expected rate ({sample_rate})")
+    # else:
+    #     audio_data = audio
+    
+    # # convert to mono
+    # if len(audio_data.shape) > 1 and audio_data.shape[1] > 1:
+    #     audio_data = audio_data.mean(axis=1)
+        
+    # # normalize audio
+    # audio_data = audio_data.astype(np.float32)
+    # audio_data = audio_data / np.max(np.abs(audio_data) + 1e-10)
+    
+    
+    # # Calculate clip sizes
+    # samples_per_clip = int(clip_duration_seconds * sample_rate)
+    # step_size = int(samples_per_clip * (1 - window_overlap_ratio))
+    # num_clips = max(1, (len(audio_data) - samples_per_clip) // step_size + 1)
+    
+    # if num_clips == 0:
+    #     padded_audio = np.zeros(samples_per_clip)
+    #     padded_audio[:len(audio_data)] = audio_data
+    #     audio_data = padded_audio
+    #     num_clips = 1
+    
+    # clips = np.zeros((num_clips, samples_per_clip))
+    # for i in range(num_clips):
+    #     start = i * step_size
+    #     end = start + samples_per_clip
+        
+    #     if end > len(audio_data):
+    #         clip = np.zeros(samples_per_clip)
+    #         clip[:len(audio_data) - start] = audio_data[start:]
+    #         clips[i] = clip
+    #     else:
+    #         clips[i] = audio_data[start:end]
+    
+    # return clips, audio_data
 
+def split_into_clips_new(audio, samples_per_clip=16000, overlap_frames=4000, num_clips=None):
+        """Split audio into non-overlapping 1-second clips with light Hann windowing"""
+        window = windows.hann(samples_per_clip)
+        window = 0.1 * window + 0.9
+        # num_clips = len(audio) // samples_per_clip
+        clips = []
+        
+        for i in range(num_clips):
+            start = i * overlap_frames
+            end = start + samples_per_clip
+            clip = audio[start:end]
+            clip = clip * window
+            clips.append(clip)
+        
+        if len(audio) % samples_per_clip > 0:
+            start = num_clips * samples_per_clip
+            remaining = audio[start:]
+            clip = np.pad(remaining, (0, samples_per_clip - len(remaining)))
+            clip = clip * window
+            clips.append(clip)
+        
+        return clips if clips else [np.zeros(samples_per_clip)]
 
 def reconstruct_audio_from_clips(clips, clip_duration_seconds=1.0, window_overlap_ratio=0.25):
     """
