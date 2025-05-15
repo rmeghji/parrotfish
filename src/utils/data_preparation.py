@@ -442,7 +442,7 @@ def split_into_clips_new(audio, samples_per_clip=16000, overlap_frames=4000, num
             clip = clip * window
             clips.append(clip)
         
-        return clips if clips else [np.zeros(samples_per_clip)]
+        return np.array(clips) if clips else np.zeros((1, samples_per_clip))
 
 def reconstruct_audio_from_clips(clips, clip_duration_seconds=1.0, window_overlap_ratio=0.25):
     """

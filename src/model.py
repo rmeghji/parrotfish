@@ -569,22 +569,22 @@ class WaveletUNet(tf.keras.Model):
         ])
 
         # uncomment for residual version (pre 5-14-25)
-        # self.output_conv = tf.keras.layers.Conv1D(
-        #     self.max_sources - 1,
-        #     1,
-        #     activation='tanh',
-        #     padding='same',
-        #     name='output_conv'
-        # )
-
-        # uncomment for non residual version (post 5-14-25)
         self.output_conv = tf.keras.layers.Conv1D(
-            self.max_sources ,
+            self.max_sources - 1,
             1,
             activation='tanh',
             padding='same',
             name='output_conv'
         )
+
+        # uncomment for non residual version (post 5-14-25)
+        # self.output_conv = tf.keras.layers.Conv1D(
+        #     self.max_sources ,
+        #     1,
+        #     activation='tanh',
+        #     padding='same',
+        #     name='output_conv'
+        # )
             
         super().build(input_shape)
         self.summary()
@@ -640,12 +640,12 @@ class WaveletUNet(tf.keras.Model):
         current_layer = tf.concat([full_mix, current_layer], axis=-1)
         
         # uncomment for residual version (pre 5-14-25)
-        # partial_outputs = self.output_conv(current_layer)
-        # residual_source = full_mix - tf.reduce_sum(partial_outputs, axis=-1, keepdims=True)
-        # outputs = tf.concat([partial_outputs, residual_source], axis=-1)
+        partial_outputs = self.output_conv(current_layer)
+        residual_source = full_mix - tf.reduce_sum(partial_outputs, axis=-1, keepdims=True)
+        outputs = tf.concat([partial_outputs, residual_source], axis=-1)
         
         # uncomment for non residual version (post 5-14-25)
-        outputs = self.output_conv(current_layer)
+        # outputs = self.output_conv(current_layer)
         
         outputs = tf.transpose(outputs, [0, 2, 1])  # (batch, sources, time)
         

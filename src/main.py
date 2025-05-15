@@ -460,8 +460,8 @@ if __name__ == "__main__":
     # test_separation(model, "data/test_mix.wav", "data/output")
     
     # audio_path = separate_mp4(video_dir="data/joe", video_filename="joe.mp4", audio_filename="joe.wav", start_time=7, length=10)
-    # generate_prediction(model_dir="models/arb_retrain", model_filename="wavelet_unet_21_0.0003", audio_dir="data/joe", audio_filename="joe.wav")
-    generate_prediction(model_dir="models/non_residual", model_filename="wavelet_unet_02_0.0003", audio_dir="data/joe", audio_filename="joe.wav")
+    generate_prediction(model_dir="models/arb_retrain", model_filename="wavelet_unet_21_0.0003", audio_dir="data/joe", audio_filename="joe.wav")
+    # generate_prediction(model_dir="models/non_residual", model_filename="wavelet_unet_02_0.0003", audio_dir="data/joe", audio_filename="joe.wav")
 
     # ex1 = wavfile.read("data/ex2/true1.wav")[1]
     # ex2 = wavfile.read("data/ex2/true2.wav")[1]
